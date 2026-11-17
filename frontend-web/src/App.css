@@ -1166,3 +1166,263 @@ a:focus-visible {
   font-size: 13px !important;
   font-weight: 600;
 }
+
+/* =====================================
+   AUTHENTIFICATION
+===================================== */
+
+.auth-modal {
+  width: 100%;
+  max-width: 450px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.auth-modal form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  margin-top: 20px;
+}
+
+.auth-modal label {
+  display: block;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 6px;
+}
+
+.auth-modal input,
+.auth-modal select {
+  width: 100%;
+  padding: 13px;
+  border: 1px solid #ddd;
+  border-radius: 9px;
+  font-size: 15px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.auth-modal input:focus,
+.auth-modal select:focus {
+  border-color: #c74736;
+}
+
+.auth-modal form button {
+  padding: 14px;
+  border: none;
+  border-radius: 9px;
+  background: #c74736;
+  color: white;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.auth-modal form button:hover {
+  background: #a93629;
+}
+
+.auth-error {
+  color: #c62828;
+  background: #ffebee;
+  padding: 10px;
+  border-radius: 8px;
+}
+
+.auth-success {
+  color: #247a3c;
+  background: #e8f5e9;
+  padding: 10px;
+  border-radius: 8px;
+}
+
+.auth-switch {
+  text-align: center;
+  margin-top: 18px;
+}
+
+.auth-switch button {
+  border: none;
+  background: none;
+  color: #c74736;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.user-welcome {
+  font-weight: 600;
+}
+
+/* =====================================
+   ROLE-BASED DASHBOARDS
+===================================== */
+
+.role-loading {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text);
+}
+
+.role-loading h2 {
+  color: var(--primary);
+  font-size: 32px;
+}
+
+.role-page,
+.role-dashboard {
+  min-height: 75vh;
+  padding: 70px 8%;
+  background: var(--cream);
+}
+
+.role-card {
+  max-width: 620px;
+  margin: 30px auto;
+  padding: 45px 35px;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  text-align: center;
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.06);
+}
+
+.role-icon {
+  font-size: 55px;
+  margin-bottom: 15px;
+}
+
+.role-card h1 {
+  color: var(--primary);
+  margin: 15px 0;
+  font-size: 27px;
+}
+
+.role-card p {
+  color: var(--muted);
+  line-height: 1.8;
+  margin-bottom: 15px;
+}
+
+.role-status {
+  display: inline-block;
+  margin: 15px 0 25px;
+  padding: 12px 20px;
+  border-radius: 30px;
+  font-weight: 700;
+}
+
+.role-status.pending {
+  background: #fff0d2;
+  color: #9a6500;
+}
+
+.dashboard-heading {
+  margin-bottom: 40px;
+}
+
+.dashboard-heading > span {
+  color: var(--gold);
+  font-weight: 800;
+  letter-spacing: 2px;
+  font-size: 12px;
+}
+
+.dashboard-heading h1 {
+  color: var(--primary);
+  font-size: 34px;
+  margin: 12px 0;
+}
+
+.dashboard-heading p {
+  color: var(--muted);
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 22px;
+}
+
+.dashboard-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.04);
+}
+
+.dashboard-card > span {
+  font-size: 35px;
+}
+
+.dashboard-card h3 {
+  color: var(--primary);
+  margin: 18px 0 10px;
+}
+
+.dashboard-card p {
+  color: var(--muted);
+  line-height: 1.6;
+  min-height: 50px;
+}
+
+.dashboard-card strong {
+  display: inline-block;
+  margin-top: 15px;
+  color: #9a6500;
+  font-size: 12px;
+}
+
+.dashboard-notice {
+  margin-top: 30px;
+  padding: 20px;
+  background: var(--white);
+  border-left: 4px solid var(--gold);
+  border-radius: 8px;
+  color: var(--text);
+  line-height: 1.7;
+}
+
+@media (max-width: 600px) {
+  .role-page,
+  .role-dashboard {
+    padding: 40px 5%;
+  }
+
+  .role-card {
+    padding: 30px 20px;
+  }
+
+  .dashboard-heading h1 {
+    font-size: 27px;
+  }
+}
+/* ADMIN - Gestion des commerçants */
+.admin-merchants-section {
+  margin-top: 50px;
+  padding: 30px;
+  background: #fff;
+  border-radius: 18px;
+  border: 1px solid #eee;
+}
+
+.admin-merchant-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+}
+
+.admin-merchant-actions button {
+  flex: 1;
+  min-width: 130px;
+}
+
+.admin-merchant-actions button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

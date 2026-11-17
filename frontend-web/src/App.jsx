@@ -1,5 +1,6 @@
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import api from './services/api'
 import './App.css'
 
 function App() {
@@ -9,7 +10,123 @@ function App() {
   const [reservationSuccess, setReservationSuccess] = useState(false)
   const [reservations, setReservations] = useState([])
 
-  // Liste des offres alimentaires
+  // Authentification
+  const [authMode, setAuthMode] = useState(null)
+  const [currentUser, setCurrentUser] = useState(null)
+  const [authChecking, setAuthChecking] = useState(true)
+  const [authLoading, setAuthLoading] = useState(false)
+  const [authError, setAuthError] = useState('')
+  const [authSuccess, setAuthSuccess] = useState('')
+  // Gestion des demandes commerçants (Admin)
+  const [pendingMerchants, setPendingMerchants] = useState([])
+  const [merchantsLoading, setMerchantsLoading] = useState(false)
+  const [merchantMessage, setMerchantMessage] = useState('')
+  const [merchantActionLoading, setMerchantActionLoading] = useState(null)
+
+  // Formulaire d'authentification
+  const [authForm, setAuthForm] = useState({
+    fullName: '',
+    email: '',
+    password: '',
+    role: 'student'
+  })
+
+  // Vérification de la session depuis le backend
+  useEffect(() => {
+    const verifySession = async () => {
+      const token = localStorage.getItem('campussave_token')
+
+      if (!token) {
+        setCurrentUser(null)
+        setAuthChecking(false)
+        return
+      }
+
+      try {
+        const response = await api.get('/api/auth/me')
+
+        if (response.data.success && response.data.user) {
+          const user = response.data.user
+
+          setCurrentUser(user)
+          localStorage.setItem('campussave_user', JSON.stringify(user))
+        } else {
+          throw new Error('Profil utilisateur introuvable.')
+        }
+      } catch (error) {
+        console.error('Erreur de session:', error)
+
+        localStorage.removeItem('campussave_token')
+        localStorage.removeItem('campussave_user')
+        setCurrentUser(null)
+      } finally {
+        setAuthChecking(false)
+      }
+    }
+
+    verifySession()
+  }, [])
+
+  // Charger automatiquement les demandes lorsque l'admin est connecté
+  useEffect(() => {
+    if (currentUser?.role === 'admin') {
+      fetchPendingMerchants()
+    }
+  }, [currentUser])
+// Charger les commerçants en attente
+const fetchPendingMerchants = async () => {
+  setMerchantsLoading(true)
+  setMerchantMessage('')
+
+  try {
+    const response = await api.get('/api/users/merchants/pending')
+
+    if (response.data.success) {
+      setPendingMerchants(response.data.merchants || [])
+    }
+  } catch (error) {
+    console.error(error)
+    setMerchantMessage(
+      error.response?.data?.message ||
+      'Erreur lors du chargement des demandes.'
+    )
+  } finally {
+    setMerchantsLoading(false)
+  }
+}
+
+// Approuver ou refuser un commerçant
+const handleMerchantAction = async (merchantId, action) => {
+  const label = action === 'approve' ? 'approuver' : 'refuser'
+
+  if (!window.confirm(`Voulez-vous vraiment ${label} ce commerçant ?`)) {
+    return
+  }
+
+  setMerchantActionLoading(merchantId)
+  setMerchantMessage('')
+
+  try {
+    const response = await api.put(
+      `/api/users/${merchantId}/${action}`
+    )
+
+    setMerchantMessage(
+      response.data.message || 'Opération effectuée avec succès.'
+    )
+
+    await fetchPendingMerchants()
+  } catch (error) {
+    console.error(error)
+    setMerchantMessage(
+      error.response?.data?.message ||
+      'Une erreur est survenue.'
+    )
+  } finally {
+    setMerchantActionLoading(null)
+  }
+}
+  // Offres de démonstration
   const offers = [
     {
       id: 1,
@@ -49,13 +166,10 @@ function App() {
     }
   ]
 
-  // Filtrer les offres
-  const filteredOffers = offers.filter((offer) => {
-    return activeCategory === 'Tous' ||
-      offer.category === activeCategory
-  })
+  const filteredOffers = offers.filter(
+    offer => activeCategory === 'Tous' || offer.category === activeCategory
+  )
 
-  // Calculer le prix total
   const totalPrice = selectedOffer
     ? (
         Number(
@@ -67,9 +181,107 @@ function App() {
       ).toFixed(3)
     : '0.000'
 
-  // Confirmer et enregistrer une réservation
+  // Champs du formulaire
+  const handleAuthChange = (event) => {
+    const { name, value } = event.target
+
+    setAuthForm(previous => ({
+      ...previous,
+      [name]: value
+    }))
+  }
+
+  const openAuth = (mode) => {
+    setAuthMode(mode)
+    setAuthError('')
+    setAuthSuccess('')
+
+    setAuthForm({
+      fullName: '',
+      email: '',
+      password: '',
+      role: 'student'
+    })
+  }
+
+  // Inscription et connexion
+  const handleAuthSubmit = async (event) => {
+    event.preventDefault()
+
+    setAuthError('')
+    setAuthSuccess('')
+    setAuthLoading(true)
+
+    try {
+      if (authMode === 'register') {
+        await api.post('/api/auth/register', authForm)
+
+        setAuthMode('login')
+        setAuthForm(previous => ({
+          ...previous,
+          password: ''
+        }))
+
+        setAuthSuccess(
+          'Inscription réussie ! Connectez-vous maintenant.'
+        )
+      } else {
+        const response = await api.post('/api/auth/login', {
+          email: authForm.email,
+          password: authForm.password
+        })
+
+        const { user, tokens } = response.data
+
+        if (!tokens?.idToken || !user) {
+          throw new Error('Réponse du serveur invalide.')
+        }
+
+        localStorage.setItem('campussave_token', tokens.idToken)
+        localStorage.setItem('campussave_user', JSON.stringify(user))
+
+        setCurrentUser(user)
+        setAuthMode(null)
+        setAuthError('')
+        setAuthSuccess('')
+      }
+    } catch (error) {
+      setAuthError(
+        error.response?.data?.message ||
+        error.message ||
+        'Une erreur est survenue. Réessayez.'
+      )
+    } finally {
+      setAuthLoading(false)
+    }
+  }
+
+  // Déconnexion
+  const handleLogout = () => {
+    localStorage.removeItem('campussave_token')
+    localStorage.removeItem('campussave_user')
+
+    setCurrentUser(null)
+    setAuthMode(null)
+    setReservations([])
+    setAuthError('')
+    setAuthSuccess('')
+  }
+
+  // Réservation (étudiant uniquement)
   const handleReservation = () => {
     if (!selectedOffer || quantity < 1 || quantity > selectedOffer.portions) {
+      return
+    }
+
+    if (!currentUser) {
+      setSelectedOffer(null)
+      openAuth('login')
+      setAuthError('Connectez-vous pour réserver un repas.')
+      return
+    }
+
+    if (currentUser.role !== 'student') {
       return
     }
 
@@ -84,16 +296,11 @@ function App() {
       status: 'Confirmée'
     }
 
-    setReservations((previous) => [
-      newReservation,
-      ...previous
-    ])
-
+    setReservations(previous => [newReservation, ...previous])
     setSelectedOffer(null)
     setReservationSuccess(true)
   }
 
-  // Annuler une réservation
   const handleCancelReservation = (reservationId) => {
     const confirmCancel = window.confirm(
       'Voulez-vous vraiment annuler cette réservation ?'
@@ -101,8 +308,8 @@ function App() {
 
     if (!confirmCancel) return
 
-    setReservations((previousReservations) =>
-      previousReservations.map((reservation) =>
+    setReservations(previous =>
+      previous.map(reservation =>
         reservation.id === reservationId
           ? { ...reservation, status: 'Annulée' }
           : reservation
@@ -110,6 +317,244 @@ function App() {
     )
   }
 
+  const scrollTo = (id) => {
+    document.getElementById(id)?.scrollIntoView({
+      behavior: 'smooth'
+    })
+  }
+
+  // Pendant la vérification de la session
+  if (authChecking) {
+    return (
+      <div className="app">
+        <div className="role-loading">
+          <h2>CampusSave</h2>
+          <p>Vérification de votre session...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Commerçant en attente de validation
+  if (
+    currentUser?.role === 'merchant' &&
+    currentUser?.status !== 'active'
+  ) {
+    return (
+      <div className="app">
+        <header className="navbar">
+          <div className="logo">Campus<span>Save</span></div>
+          <div className="nav-buttons">
+            <button className="login-btn" onClick={handleLogout}>
+              Déconnexion
+            </button>
+          </div>
+        </header>
+
+        <main className="role-page">
+          <div className="role-card">
+            <div className="role-icon">⏳</div>
+            <span className="modal-tag">CAMPUSSAVE</span>
+            <h1>Compte en attente de validation</h1>
+            <p>
+              Bonjour {currentUser.fullName},
+              votre demande d'inscription en tant que commerçant
+              a bien été reçue.
+            </p>
+            <p>
+              Notre équipe doit valider votre compte avant que
+              vous puissiez accéder à votre espace commerçant.
+            </p>
+            <div className="role-status pending">
+              En attente de validation
+            </div>
+            <button className="confirm-reservation" onClick={handleLogout}>
+              Se déconnecter
+            </button>
+          </div>
+        </main>
+      </div>
+    )
+  }
+
+  // Espace commerçant actif
+  if (
+    currentUser?.role === 'merchant' &&
+    currentUser?.status === 'active'
+  ) {
+    return (
+      <div className="app">
+        <header className="navbar">
+          <div className="logo">Campus<span>Save</span></div>
+          <div className="nav-buttons">
+            <span className="user-welcome">
+              Bonjour, {currentUser.fullName}
+            </span>
+            <button className="login-btn" onClick={handleLogout}>
+              Déconnexion
+            </button>
+          </div>
+        </header>
+
+        <main className="role-dashboard">
+          <div className="dashboard-heading">
+            <span>ESPACE PROFESSIONNEL</span>
+            <h1>Tableau de bord commerçant</h1>
+            <p>Bienvenue sur votre espace CampusSave.</p>
+          </div>
+
+          <div className="dashboard-grid">
+            <div className="dashboard-card">
+              <span>🍽️</span>
+              <h3>Mes offres</h3>
+              <p>Gérez vos offres alimentaires et vos produits.</p>
+              <strong>Fonctionnalité à connecter</strong>
+            </div>
+
+            <div className="dashboard-card">
+              <span>📋</span>
+              <h3>Réservations reçues</h3>
+              <p>Consultez les réservations effectuées par les étudiants.</p>
+              <strong>Fonctionnalité à connecter</strong>
+            </div>
+
+            <div className="dashboard-card">
+              <span>📊</span>
+              <h3>Statistiques</h3>
+              <p>Suivez vos ventes et les repas sauvés.</p>
+              <strong>Fonctionnalité à connecter</strong>
+            </div>
+          </div>
+
+          <div className="dashboard-notice">
+            Votre compte commerçant est actif. Les outils de gestion
+            seront disponibles après la connexion des API.
+          </div>
+        </main>
+      </div>
+    )
+  }
+
+  // Espace administrateur
+  if (currentUser?.role === 'admin') {
+    return (
+      <div className="app">
+        <header className="navbar">
+          <div className="logo">Campus<span>Save</span></div>
+          <div className="nav-buttons">
+            <span className="user-welcome">
+              Administrateur : {currentUser.fullName}
+            </span>
+            <button className="login-btn" onClick={handleLogout}>
+              Déconnexion
+            </button>
+          </div>
+        </header>
+
+        <main className="role-dashboard">
+          <div className="dashboard-heading">
+            <span>ADMINISTRATION</span>
+            <h1>Tableau de bord administrateur</h1>
+            <p>Gérez la plateforme CampusSave.</p>
+          </div>
+
+          <div className="dashboard-grid">
+            <div className="dashboard-card">
+              <span>👥</span>
+              <h3>Utilisateurs</h3>
+              <p>Consultez et gérez les comptes utilisateurs.</p>
+              <strong>Fonctionnalité à connecter</strong>
+            </div>
+
+           <div className="dashboard-card">
+  <span>⏳</span>
+  <h3>Demandes commerçants</h3>
+  <p>Validez ou refusez les demandes d'inscription.</p>
+  <strong>{pendingMerchants.length} demande(s) en attente</strong>
+</div>
+
+            <div className="dashboard-card">
+              <span>🍽️</span>
+              <h3>Offres alimentaires</h3>
+              <p>Consultez et contrôlez les offres de la plateforme.</p>
+              <strong>Fonctionnalité à connecter</strong>
+            </div>
+
+            <div className="dashboard-card">
+              <span>📊</span>
+              <h3>Statistiques générales</h3>
+              <p>Suivez les activités de CampusSave.</p>
+              <strong>Fonctionnalité à connecter</strong>
+            </div>
+          </div>
+<section className="admin-merchants-section">
+  <div className="section-heading">
+    <span>GESTION DES COMMERÇANTS</span>
+    <h2>Demandes d'inscription</h2>
+    <p>Examinez les demandes et choisissez d'approuver ou de refuser.</p>
+  </div>
+
+  <button
+    className="confirm-reservation"
+    onClick={fetchPendingMerchants}
+    disabled={merchantsLoading}
+  >
+    {merchantsLoading ? 'Chargement...' : 'Actualiser les demandes'}
+  </button>
+
+  {merchantMessage && (
+    <p className="auth-success">{merchantMessage}</p>
+  )}
+
+  {merchantsLoading ? (
+    <p>Chargement des demandes...</p>
+  ) : pendingMerchants.length === 0 ? (
+    <p>Aucune demande commerçant en attente.</p>
+  ) : (
+    <div className="reservations-list">
+      {pendingMerchants.map(merchant => (
+        <div className="reservation-card" key={merchant.uid}>
+          <h3>{merchant.fullName || merchant.name || 'Commerçant'}</h3>
+
+          <p>📧 {merchant.email || 'E-mail non disponible'}</p>
+          <p>📞 {merchant.phone || 'Téléphone non disponible'}</p>
+          <p>Statut : En attente</p>
+
+          <div className="admin-merchant-actions">
+            <button
+              className="confirm-reservation"
+              disabled={merchantActionLoading === merchant.uid}
+              onClick={() => handleMerchantAction(merchant.uid, 'approve')}
+            >
+              {merchantActionLoading === merchant.id
+                ? 'Traitement...'
+                : '✓ Approuver'}
+            </button>
+
+            <button
+              className="cancel-reservation-btn"
+              disabled={merchantActionLoading === merchant.id}
+              onClick={() => handleMerchantAction(merchant.uid, 'reject')}
+            >
+              ✕ Refuser
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  )}
+</section>
+          <div className="dashboard-notice">
+            Vous êtes connecté en tant qu'administrateur.
+            Les outils de gestion seront connectés aux API backend
+            dans les prochaines étapes.
+          </div>
+        </main>
+      </div>
+    )
+  }
+
+  // Accueil visiteur et étudiant
   return (
     <div className="app">
 
@@ -122,20 +567,38 @@ function App() {
         <nav>
           <a href="#accueil">Accueil</a>
           <a href="#offres">Nos offres</a>
-          <a href="#reservations">Mes réservations</a>
+          {currentUser?.role === 'student' && (
+            <a href="#reservations">Mes réservations</a>
+          )}
           <a href="#comment">Comment ça marche</a>
         </nav>
 
         <div className="nav-buttons">
-          <button className="login-btn">Connexion</button>
-          <button className="signup-btn">Inscription</button>
+          {currentUser ? (
+            <>
+              <span className="user-welcome">
+                Bonjour, {currentUser.fullName}
+              </span>
+              <button className="login-btn" onClick={handleLogout}>
+                Déconnexion
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="login-btn" onClick={() => openAuth('login')}>
+                Connexion
+              </button>
+              <button className="signup-btn" onClick={() => openAuth('register')}>
+                Inscription
+              </button>
+            </>
+          )}
         </div>
       </header>
 
-      {/* Hero Section */}
+      {/* Hero */}
       <section className="hero" id="accueil">
         <div className="hero-content">
-
           <span className="hero-tag">
             🌱 Ensemble contre le gaspillage alimentaire
           </span>
@@ -153,44 +616,21 @@ function App() {
           </p>
 
           <div className="hero-buttons">
-            <button
-              className="primary-btn"
-              onClick={() => {
-                document.getElementById('offres')?.scrollIntoView({
-                  behavior: 'smooth'
-                })
-              }}
-            >
+            <button className="primary-btn" onClick={() => scrollTo('offres')}>
               Découvrir les offres →
             </button>
 
-            <button
-              className="secondary-btn"
-              onClick={() => {
-                document.getElementById('reservations')?.scrollIntoView({
-                  behavior: 'smooth'
-                })
-              }}
-            >
-              Mes réservations
-            </button>
+            {currentUser?.role === 'student' && (
+              <button className="secondary-btn" onClick={() => scrollTo('reservations')}>
+                Mes réservations
+              </button>
+            )}
           </div>
 
           <div className="hero-stats">
-            <div>
-              <strong>500+</strong>
-              <small>Repas sauvés</small>
-            </div>
-
-            <div>
-              <strong>50+</strong>
-              <small>Commerçants</small>
-            </div>
-
-            <div>
-              <strong>1000+</strong>
-              <small>Étudiants</small>
-            </div>
+            <div><strong>500+</strong><small>Repas sauvés</small></div>
+            <div><strong>50+</strong><small>Commerçants</small></div>
+            <div><strong>1000+</strong><small>Étudiants</small></div>
           </div>
         </div>
 
@@ -203,28 +643,19 @@ function App() {
         </div>
       </section>
 
-      {/* Offers Section */}
+      {/* Offres */}
       <section className="offers" id="offres">
-
         <div className="section-heading">
           <span>LES BONNES AFFAIRES</span>
           <h2>Les offres du moment</h2>
-          <p>
-            Des repas de qualité à petits prix,
-            disponibles près de vous.
-          </p>
+          <p>Des repas de qualité à petits prix, disponibles près de vous.</p>
         </div>
 
-        {/* Category Filters */}
         <div className="category-filters">
-          {['Tous', 'Sandwichs', 'Pizzas', 'Salades'].map((category) => (
+          {['Tous', 'Sandwichs', 'Pizzas', 'Salades'].map(category => (
             <button
               key={category}
-              className={
-                activeCategory === category
-                  ? 'filter-btn active'
-                  : 'filter-btn'
-              }
+              className={activeCategory === category ? 'filter-btn active' : 'filter-btn'}
               onClick={() => setActiveCategory(category)}
             >
               {category}
@@ -232,40 +663,23 @@ function App() {
           ))}
         </div>
 
-        {/* Number of results */}
         <p className="offers-count">
           <strong>{filteredOffers.length}</strong>{' '}
-          {filteredOffers.length > 1
-            ? 'offres disponibles'
-            : 'offre disponible'}
+          {filteredOffers.length > 1 ? 'offres disponibles' : 'offre disponible'}
         </p>
 
-        {/* Food Cards */}
         <div className="offers-container">
-
           {filteredOffers.length > 0 ? (
-            filteredOffers.map((offer) => (
+            filteredOffers.map(offer => (
               <div className="offer-card" key={offer.id}>
-
                 <div className="food-image">
-                  <img
-                    src={offer.image}
-                    alt={offer.name}
-                  />
-
-                  <span className="discount">
-                    {offer.discount}
-                  </span>
+                  <img src={offer.image} alt={offer.name} />
+                  <span className="discount">{offer.discount}</span>
                 </div>
 
                 <div className="offer-info">
-
                   <h3>{offer.name}</h3>
-
-                  <span className="offer-category">
-                    {offer.category}
-                  </span>
-
+                  <span className="offer-category">{offer.category}</span>
                   <p>📍 {offer.location}</p>
 
                   <div className="offer-details">
@@ -273,27 +687,21 @@ function App() {
                     <del>{offer.oldPrice}</del>
                   </div>
 
-                  {/* Disponibilité */}
                   <div className="portions-info">
                     <div className="portions-text">
                       <span>📦 Disponibilité</span>
                       <strong>{offer.portions} portions</strong>
                     </div>
-
                     <div className="portions-bar">
                       <div
                         className="portions-progress"
                         style={{
-                          width: `${Math.min(
-                            offer.portions / 10 * 100,
-                            100
-                          )}%`
+                          width: `${Math.min(offer.portions / 10 * 100, 100)}%`
                         }}
-                      ></div>
+                      />
                     </div>
                   </div>
 
-                  {/* Horaires de retrait */}
                   <div className="pickup-info">
                     <span>🕒 Heure de retrait</span>
                     <strong>{offer.pickup}</strong>
@@ -301,13 +709,24 @@ function App() {
 
                   <button
                     onClick={() => {
+                      if (!currentUser) {
+                        openAuth('login')
+                        setAuthError('Connectez-vous en tant qu’étudiant pour réserver.')
+                        return
+                      }
+
+                      if (currentUser.role !== 'student') return
+
                       setSelectedOffer(offer)
                       setQuantity(1)
                     }}
                   >
-                    Réserver maintenant
+                    {currentUser?.role === 'student'
+                      ? 'Réserver maintenant'
+                      : currentUser
+                        ? 'Réservation étudiant uniquement'
+                        : 'Connectez-vous pour réserver'}
                   </button>
-
                 </div>
               </div>
             ))
@@ -316,129 +735,94 @@ function App() {
               Aucune offre disponible dans cette catégorie.
             </p>
           )}
-
         </div>
       </section>
 
-      {/* Reservation History */}
-      <section className="reservations-section" id="reservations">
-
-        <div className="section-heading">
-          <span>VOTRE ESPACE</span>
-          <h2>Mes réservations</h2>
-          <p>
-            Retrouvez toutes vos réservations effectuées sur CampusSave.
-          </p>
-        </div>
-
-        {reservations.length > 0 ? (
-          <div className="reservations-list">
-
-            {reservations.map((reservation) => (
-              <div
-                className={`reservation-card ${
-                  reservation.status === 'Annulée'
-                    ? 'reservation-cancelled'
-                    : ''
-                }`}
-                key={reservation.id}
-              >
-
-                <div className="reservation-card-header">
-                  <h3>{reservation.name}</h3>
-
-                  <span
-                    className={`reservation-status ${
-                      reservation.status === 'Annulée'
-                        ? 'status-cancelled'
-                        : ''
-                    }`}
-                  >
-                    {reservation.status === 'Annulée' ? '✕' : '✓'}
-                    {' '}
-                    {reservation.status}
-                  </span>
-                </div>
-
-                <p>📍 {reservation.location}</p>
-
-                <div className="reservation-card-details">
-                  <span>📦 {reservation.quantity} portion(s)</span>
-                  <strong>{reservation.total} DT</strong>
-                </div>
-
-                <p>🕒 Retrait : {reservation.pickup}</p>
-
-                <small>📅 {reservation.date}</small>
-
-                {reservation.status === 'Confirmée' && (
-                  <button
-                    className="cancel-reservation-btn"
-                    onClick={() => handleCancelReservation(reservation.id)}
-                  >
-                    Annuler la réservation
-                  </button>
-                )}
-
-                {reservation.status === 'Annulée' && (
-                  <p className="cancelled-message">
-                    Cette réservation a été annulée.
-                  </p>
-                )}
-
-              </div>
-            ))}
-
+      {/* Réservations étudiant */}
+      {currentUser?.role === 'student' && (
+        <section className="reservations-section" id="reservations">
+          <div className="section-heading">
+            <span>VOTRE ESPACE</span>
+            <h2>Mes réservations</h2>
+            <p>Retrouvez vos réservations effectuées sur CampusSave.</p>
           </div>
-        ) : (
-          <div className="empty-reservations">
-            <span>📋</span>
-            <h3>Aucune réservation pour le moment</h3>
-            <p>
-              Vos prochaines réservations apparaîtront ici.
-            </p>
 
-            <button
-              onClick={() => {
-                document.getElementById('offres')?.scrollIntoView({
-                  behavior: 'smooth'
-                })
-              }}
-            >
-              Découvrir les offres
-            </button>
-          </div>
-        )}
+          {reservations.length > 0 ? (
+            <div className="reservations-list">
+              {reservations.map(reservation => (
+                <div
+                  className={`reservation-card ${
+                    reservation.status === 'Annulée' ? 'reservation-cancelled' : ''
+                  }`}
+                  key={reservation.id}
+                >
+                  <div className="reservation-card-header">
+                    <h3>{reservation.name}</h3>
+                    <span
+                      className={`reservation-status ${
+                        reservation.status === 'Annulée' ? 'status-cancelled' : ''
+                      }`}
+                    >
+                      {reservation.status === 'Annulée' ? '✕' : '✓'} {reservation.status}
+                    </span>
+                  </div>
 
-      </section>
+                  <p>📍 {reservation.location}</p>
 
-      {/* Reservation Modal */}
+                  <div className="reservation-card-details">
+                    <span>📦 {reservation.quantity} portion(s)</span>
+                    <strong>{reservation.total} DT</strong>
+                  </div>
+
+                  <p>🕒 Retrait : {reservation.pickup}</p>
+                  <small>📅 {reservation.date}</small>
+
+                  {reservation.status === 'Confirmée' && (
+                    <button
+                      className="cancel-reservation-btn"
+                      onClick={() => handleCancelReservation(reservation.id)}
+                    >
+                      Annuler la réservation
+                    </button>
+                  )}
+
+                  {reservation.status === 'Annulée' && (
+                    <p className="cancelled-message">
+                      Cette réservation a été annulée.
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-reservations">
+              <span>📋</span>
+              <h3>Aucune réservation pour le moment</h3>
+              <p>Vos prochaines réservations apparaîtront ici.</p>
+              <button onClick={() => scrollTo('offres')}>
+                Découvrir les offres
+              </button>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Modal réservation */}
       {selectedOffer && (
         <div className="modal-overlay">
           <div className="reservation-modal">
-
-            <button
-              className="modal-close"
-              onClick={() => setSelectedOffer(null)}
-            >
+            <button className="modal-close" onClick={() => setSelectedOffer(null)}>
               ×
             </button>
 
             <span className="modal-tag">CAMPUSSAVE</span>
-
             <h2>Réserver votre repas</h2>
-
             <h3>{selectedOffer.name}</h3>
-
             <p>{selectedOffer.location}</p>
-
-            <div className="modal-price">
-              {selectedOffer.price}
-            </div>
+            <div className="modal-price">{selectedOffer.price}</div>
 
             <div className="quantity-selector">
               <label>Nombre de portions</label>
-
               <div>
                 <button
                   onClick={() => setQuantity(Math.max(1, quantity - 1))}
@@ -446,13 +830,9 @@ function App() {
                 >
                   −
                 </button>
-
                 <strong>{quantity}</strong>
-
                 <button
-                  onClick={() => setQuantity(
-                    Math.min(selectedOffer.portions, quantity + 1)
-                  )}
+                  onClick={() => setQuantity(Math.min(selectedOffer.portions, quantity + 1))}
                   disabled={quantity >= selectedOffer.portions}
                 >
                   +
@@ -465,42 +845,136 @@ function App() {
               <strong>{totalPrice} DT</strong>
             </div>
 
-            <button
-              className="confirm-reservation"
-              onClick={handleReservation}
-            >
+            <button className="confirm-reservation" onClick={handleReservation}>
               Confirmer la réservation
             </button>
-
           </div>
         </div>
       )}
 
-      {/* Reservation Success Message */}
+      {/* Succès réservation */}
       {reservationSuccess && (
         <div className="modal-overlay">
           <div className="reservation-modal success-modal">
-
             <div className="success-icon">✓</div>
-
             <h2>Réservation confirmée !</h2>
-
-            <p>
-              Votre réservation a été enregistrée avec succès.
-            </p>
-
+            <p>Votre réservation a été enregistrée avec succès.</p>
             <button
               className="confirm-reservation"
               onClick={() => {
                 setReservationSuccess(false)
-                document.getElementById('reservations')?.scrollIntoView({
-                  behavior: 'smooth'
-                })
+                scrollTo('reservations')
               }}
             >
               Voir mes réservations
             </button>
+          </div>
+        </div>
+      )}
 
+      {/* Modal authentification */}
+      {authMode && (
+        <div className="modal-overlay">
+          <div className="reservation-modal auth-modal">
+            <button
+              className="modal-close"
+              onClick={() => {
+                setAuthMode(null)
+                setAuthError('')
+                setAuthSuccess('')
+              }}
+            >
+              ×
+            </button>
+
+            <span className="modal-tag">CAMPUSSAVE</span>
+
+            <h2>
+              {authMode === 'login' ? 'Bienvenue !' : 'Créer un compte'}
+            </h2>
+
+            <p>
+              {authMode === 'login'
+                ? 'Connectez-vous à votre espace CampusSave.'
+                : 'Rejoignez la communauté CampusSave.'}
+            </p>
+
+            {authError && <p className="auth-error">{authError}</p>}
+            {authSuccess && <p className="auth-success">{authSuccess}</p>}
+
+            <form onSubmit={handleAuthSubmit}>
+              {authMode === 'register' && (
+                <>
+                  <label>Nom complet</label>
+                  <input
+                    type="text"
+                    name="fullName"
+                    value={authForm.fullName}
+                    onChange={handleAuthChange}
+                    placeholder="Votre nom complet"
+                    required
+                  />
+
+                  <label>Type de compte</label>
+                  <select
+                    name="role"
+                    value={authForm.role}
+                    onChange={handleAuthChange}
+                  >
+                    <option value="student">Étudiant</option>
+                    <option value="merchant">Commerçant</option>
+                  </select>
+                </>
+              )}
+
+              <label>Adresse e-mail</label>
+              <input
+                type="email"
+                name="email"
+                value={authForm.email}
+                onChange={handleAuthChange}
+                placeholder="exemple@email.com"
+                required
+              />
+
+              <label>Mot de passe</label>
+              <input
+                type="password"
+                name="password"
+                value={authForm.password}
+                onChange={handleAuthChange}
+                placeholder="8 caractères minimum"
+                minLength={8}
+                required
+              />
+
+              <button
+                className="confirm-reservation"
+                type="submit"
+                disabled={authLoading}
+              >
+                {authLoading
+                  ? 'Veuillez patienter...'
+                  : authMode === 'login'
+                    ? 'Se connecter'
+                    : "S'inscrire"}
+              </button>
+            </form>
+
+            <p className="auth-switch">
+              {authMode === 'login'
+                ? 'Vous n’avez pas de compte ?'
+                : 'Vous avez déjà un compte ?'}
+              {' '}
+              <button
+                type="button"
+                onClick={() => openAuth(
+                  authMode === 'login' ? 'register' : 'login'
+                )}
+              >
+                {authMode === 'login' ? "S'inscrire" : 'Se connecter'}
+              </button>
+            </p>
           </div>
         </div>
       )}
@@ -508,16 +982,9 @@ function App() {
       {/* Footer */}
       <footer className="footer" id="comment">
         <h2>CampusSave</h2>
-
-        <p>
-          Ensemble, réduisons le gaspillage alimentaire.
-        </p>
-
-        <small>
-          © 2026 CampusSave. Tous droits réservés.
-        </small>
+        <p>Ensemble, réduisons le gaspillage alimentaire.</p>
+        <small>© 2026 CampusSave. Tous droits réservés.</small>
       </footer>
-
     </div>
   )
 }

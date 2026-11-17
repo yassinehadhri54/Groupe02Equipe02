@@ -1,0 +1,64 @@
+
+const { auth, db } = require("../config/firebase");
+
+const verifyToken = async (req, res, next) => {
+    try {
+        // 1. Get token from Authorization header
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+            return res.status(401).json({
+                success: false,
+                message: "Access denied. No token provided."
+            });
+        }
+
+        // 2. Extract token
+        const token = authHeader.split(" ")[1];
+
+        if (!token) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid authorization token."
+            });
+        }
+
+        // 3. Verify Firebase ID Token
+        const decodedToken = await auth.verifyIdToken(token);
+
+        // 4. Get user profile from Firestore
+        const userDoc = await db.collection("users")
+            .doc(decodedToken.uid)
+            .get();
+
+        if (!userDoc.exists) {
+            return res.status(404).json({
+                success: false,
+                message: "User profile not found."
+            });
+        }
+
+        const userData = userDoc.data();
+
+        // 5. Attach user information to request
+        req.user = {
+            uid: decodedToken.uid,
+            email: decodedToken.email,
+            fullName: userData.fullName,
+            role: userData.role,
+            status: userData.status
+        };
+
+        next();
+
+    } catch (error) {
+        console.error("Authentication error:", error.message);
+
+        return res.status(401).json({
+            success: false,
+            message: "Invalid or expired token."
+        });
+    }
+};
+
+module.exports = { verifyToken };
