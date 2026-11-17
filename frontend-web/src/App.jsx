@@ -4,6 +4,10 @@ import './App.css'
 
 function App() {
   const [activeCategory, setActiveCategory] = useState('Tous')
+  const [selectedOffer, setSelectedOffer] = useState(null)
+  const [quantity, setQuantity] = useState(1)
+  const [reservationSuccess, setReservationSuccess] = useState(false)
+  const [reservations, setReservations] = useState([])
 
   // Liste des offres alimentaires
   const offers = [
@@ -51,6 +55,61 @@ function App() {
       offer.category === activeCategory
   })
 
+  // Calculer le prix total
+  const totalPrice = selectedOffer
+    ? (
+        Number(
+          selectedOffer.price
+            .replace(' DT', '')
+            .replace('.', '')
+            .replace(',', '.')
+        ) * quantity / 1000
+      ).toFixed(3)
+    : '0.000'
+
+  // Confirmer et enregistrer une réservation
+  const handleReservation = () => {
+    if (!selectedOffer || quantity < 1 || quantity > selectedOffer.portions) {
+      return
+    }
+
+    const newReservation = {
+      id: Date.now(),
+      name: selectedOffer.name,
+      location: selectedOffer.location,
+      quantity,
+      total: totalPrice,
+      pickup: selectedOffer.pickup,
+      date: new Date().toLocaleString('fr-FR'),
+      status: 'Confirmée'
+    }
+
+    setReservations((previous) => [
+      newReservation,
+      ...previous
+    ])
+
+    setSelectedOffer(null)
+    setReservationSuccess(true)
+  }
+
+  // Annuler une réservation
+  const handleCancelReservation = (reservationId) => {
+    const confirmCancel = window.confirm(
+      'Voulez-vous vraiment annuler cette réservation ?'
+    )
+
+    if (!confirmCancel) return
+
+    setReservations((previousReservations) =>
+      previousReservations.map((reservation) =>
+        reservation.id === reservationId
+          ? { ...reservation, status: 'Annulée' }
+          : reservation
+      )
+    )
+  }
+
   return (
     <div className="app">
 
@@ -63,6 +122,7 @@ function App() {
         <nav>
           <a href="#accueil">Accueil</a>
           <a href="#offres">Nos offres</a>
+          <a href="#reservations">Mes réservations</a>
           <a href="#comment">Comment ça marche</a>
         </nav>
 
@@ -104,8 +164,15 @@ function App() {
               Découvrir les offres →
             </button>
 
-            <button className="secondary-btn">
-              En savoir plus
+            <button
+              className="secondary-btn"
+              onClick={() => {
+                document.getElementById('reservations')?.scrollIntoView({
+                  behavior: 'smooth'
+                })
+              }}
+            >
+              Mes réservations
             </button>
           </div>
 
@@ -168,7 +235,9 @@ function App() {
         {/* Number of results */}
         <p className="offers-count">
           <strong>{filteredOffers.length}</strong>{' '}
-          {filteredOffers.length > 1 ? 'offres disponibles' : 'offre disponible'}
+          {filteredOffers.length > 1
+            ? 'offres disponibles'
+            : 'offre disponible'}
         </p>
 
         {/* Food Cards */}
@@ -183,6 +252,7 @@ function App() {
                     src={offer.image}
                     alt={offer.name}
                   />
+
                   <span className="discount">
                     {offer.discount}
                   </span>
@@ -192,6 +262,10 @@ function App() {
 
                   <h3>{offer.name}</h3>
 
+                  <span className="offer-category">
+                    {offer.category}
+                  </span>
+
                   <p>📍 {offer.location}</p>
 
                   <div className="offer-details">
@@ -199,15 +273,38 @@ function App() {
                     <del>{offer.oldPrice}</del>
                   </div>
 
-                  <p>
-                    📦 {offer.portions} portions disponibles
-                  </p>
+                  {/* Disponibilité */}
+                  <div className="portions-info">
+                    <div className="portions-text">
+                      <span>📦 Disponibilité</span>
+                      <strong>{offer.portions} portions</strong>
+                    </div>
 
-                  <p>
-                    🕒 Retrait : {offer.pickup}
-                  </p>
+                    <div className="portions-bar">
+                      <div
+                        className="portions-progress"
+                        style={{
+                          width: `${Math.min(
+                            offer.portions / 10 * 100,
+                            100
+                          )}%`
+                        }}
+                      ></div>
+                    </div>
+                  </div>
 
-                  <button>
+                  {/* Horaires de retrait */}
+                  <div className="pickup-info">
+                    <span>🕒 Heure de retrait</span>
+                    <strong>{offer.pickup}</strong>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setSelectedOffer(offer)
+                      setQuantity(1)
+                    }}
+                  >
                     Réserver maintenant
                   </button>
 
@@ -221,8 +318,192 @@ function App() {
           )}
 
         </div>
+      </section>
+
+      {/* Reservation History */}
+      <section className="reservations-section" id="reservations">
+
+        <div className="section-heading">
+          <span>VOTRE ESPACE</span>
+          <h2>Mes réservations</h2>
+          <p>
+            Retrouvez toutes vos réservations effectuées sur CampusSave.
+          </p>
+        </div>
+
+        {reservations.length > 0 ? (
+          <div className="reservations-list">
+
+            {reservations.map((reservation) => (
+              <div
+                className={`reservation-card ${
+                  reservation.status === 'Annulée'
+                    ? 'reservation-cancelled'
+                    : ''
+                }`}
+                key={reservation.id}
+              >
+
+                <div className="reservation-card-header">
+                  <h3>{reservation.name}</h3>
+
+                  <span
+                    className={`reservation-status ${
+                      reservation.status === 'Annulée'
+                        ? 'status-cancelled'
+                        : ''
+                    }`}
+                  >
+                    {reservation.status === 'Annulée' ? '✕' : '✓'}
+                    {' '}
+                    {reservation.status}
+                  </span>
+                </div>
+
+                <p>📍 {reservation.location}</p>
+
+                <div className="reservation-card-details">
+                  <span>📦 {reservation.quantity} portion(s)</span>
+                  <strong>{reservation.total} DT</strong>
+                </div>
+
+                <p>🕒 Retrait : {reservation.pickup}</p>
+
+                <small>📅 {reservation.date}</small>
+
+                {reservation.status === 'Confirmée' && (
+                  <button
+                    className="cancel-reservation-btn"
+                    onClick={() => handleCancelReservation(reservation.id)}
+                  >
+                    Annuler la réservation
+                  </button>
+                )}
+
+                {reservation.status === 'Annulée' && (
+                  <p className="cancelled-message">
+                    Cette réservation a été annulée.
+                  </p>
+                )}
+
+              </div>
+            ))}
+
+          </div>
+        ) : (
+          <div className="empty-reservations">
+            <span>📋</span>
+            <h3>Aucune réservation pour le moment</h3>
+            <p>
+              Vos prochaines réservations apparaîtront ici.
+            </p>
+
+            <button
+              onClick={() => {
+                document.getElementById('offres')?.scrollIntoView({
+                  behavior: 'smooth'
+                })
+              }}
+            >
+              Découvrir les offres
+            </button>
+          </div>
+        )}
 
       </section>
+
+      {/* Reservation Modal */}
+      {selectedOffer && (
+        <div className="modal-overlay">
+          <div className="reservation-modal">
+
+            <button
+              className="modal-close"
+              onClick={() => setSelectedOffer(null)}
+            >
+              ×
+            </button>
+
+            <span className="modal-tag">CAMPUSSAVE</span>
+
+            <h2>Réserver votre repas</h2>
+
+            <h3>{selectedOffer.name}</h3>
+
+            <p>{selectedOffer.location}</p>
+
+            <div className="modal-price">
+              {selectedOffer.price}
+            </div>
+
+            <div className="quantity-selector">
+              <label>Nombre de portions</label>
+
+              <div>
+                <button
+                  onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                  disabled={quantity <= 1}
+                >
+                  −
+                </button>
+
+                <strong>{quantity}</strong>
+
+                <button
+                  onClick={() => setQuantity(
+                    Math.min(selectedOffer.portions, quantity + 1)
+                  )}
+                  disabled={quantity >= selectedOffer.portions}
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            <div className="total-price">
+              <span>Total</span>
+              <strong>{totalPrice} DT</strong>
+            </div>
+
+            <button
+              className="confirm-reservation"
+              onClick={handleReservation}
+            >
+              Confirmer la réservation
+            </button>
+
+          </div>
+        </div>
+      )}
+
+      {/* Reservation Success Message */}
+      {reservationSuccess && (
+        <div className="modal-overlay">
+          <div className="reservation-modal success-modal">
+
+            <div className="success-icon">✓</div>
+
+            <h2>Réservation confirmée !</h2>
+
+            <p>
+              Votre réservation a été enregistrée avec succès.
+            </p>
+
+            <button
+              className="confirm-reservation"
+              onClick={() => {
+                setReservationSuccess(false)
+                document.getElementById('reservations')?.scrollIntoView({
+                  behavior: 'smooth'
+                })
+              }}
+            >
+              Voir mes réservations
+            </button>
+
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <footer className="footer" id="comment">
