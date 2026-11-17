@@ -40,18 +40,8 @@ const verifyToken = async (req, res, next) => {
 
         const userData = userDoc.data();
 
-        // 5. Check merchant account status
-        if (
-            userData.role === "merchant" &&
-            userData.status !== "active"
-        ) {
-            return res.status(403).json({
-                success: false,
-                message: "Your merchant account is pending approval."
-            });
-        }
-
-        // 6. Attach user information to request
+        // 5. Attach user information to request
+        // Pending merchants can authenticate and register their shop.
         req.user = {
             uid: decodedToken.uid,
             email: decodedToken.email,

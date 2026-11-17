@@ -5,8 +5,12 @@ require("dotenv").config();
 
 const { db } = require("./config/firebase");
 
+// Import routes
 const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
+const shopRoutes = require("./routes/shopRoutes");
+const offerRoutes = require("./routes/offerRoutes");
+const reservationRoutes = require("./routes/reservationRoutes");
 
 const app = express();
 
@@ -47,11 +51,12 @@ app.get("/api/firebase-test", async (req, res) => {
     }
 });
 
-// Authentication routes
+// Mount routes
 app.use("/api/auth", authRoutes);
-
-// User routes
 app.use("/api/users", userRoutes);
+app.use("/api/shops", shopRoutes);
+app.use("/api/offers", offerRoutes);
+app.use("/api/reservations", reservationRoutes);
 
 // Start server
 const PORT = process.env.PORT || 5000;
@@ -60,4 +65,7 @@ app.listen(PORT, () => {
     console.log(`CampusSave API running on port ${PORT}`);
     console.log("Auth routes mounted successfully!");
     console.log("User routes mounted successfully!");
+    console.log("Shop routes mounted successfully!");
+    console.log("Offer routes mounted successfully!");
+    console.log("Reservation routes mounted successfully!");
 });
