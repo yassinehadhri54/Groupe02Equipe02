@@ -1426,3 +1426,32 @@ a:focus-visible {
   opacity: 0.6;
   cursor: not-allowed;
 }
+/* Gestion des utilisateurs - Administration */
+.admin-users-section {
+  margin-top: 30px;
+  padding: 30px;
+  background: #fff;
+  border-radius: 18px;
+  border: 1px solid #eee;
+}
+
+.admin-users-section .section-heading {
+  margin-bottom: 25px;
+}
+
+.admin-users-section .reservations-list {
+  margin-top: 25px;
+}
+
+.admin-users-section .reservation-card {
+  margin-bottom: 15px;
+}
+
+.admin-users-section .reservation-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+ 

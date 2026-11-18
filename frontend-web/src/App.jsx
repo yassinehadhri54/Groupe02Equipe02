@@ -17,11 +17,17 @@ function App() {
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState('')
   const [authSuccess, setAuthSuccess] = useState('')
-  // Gestion des demandes commerçants (Admin)
+
+  // Gestion des commerçants (Admin)
   const [pendingMerchants, setPendingMerchants] = useState([])
   const [merchantsLoading, setMerchantsLoading] = useState(false)
   const [merchantMessage, setMerchantMessage] = useState('')
   const [merchantActionLoading, setMerchantActionLoading] = useState(null)
+
+  // Gestion des utilisateurs (Admin)
+  const [allUsers, setAllUsers] = useState([])
+  const [usersLoading, setUsersLoading] = useState(false)
+  const [usersMessage, setUsersMessage] = useState('')
 
   // Formulaire d'authentification
   const [authForm, setAuthForm] = useState({
@@ -31,7 +37,7 @@ function App() {
     role: 'student'
   })
 
-  // Vérification de la session depuis le backend
+  // Vérifier la session
   useEffect(() => {
     const verifySession = async () => {
       const token = localStorage.getItem('campussave_token')
@@ -67,65 +73,95 @@ function App() {
     verifySession()
   }, [])
 
-  // Charger automatiquement les demandes lorsque l'admin est connecté
+  // Charger tous les utilisateurs
+  const fetchAllUsers = async () => {
+    setUsersLoading(true)
+    setUsersMessage('')
+
+    try {
+      const response = await api.get('/api/users')
+
+      if (response.data.success) {
+        setAllUsers(response.data.users || [])
+      } else {
+        setUsersMessage('Impossible de récupérer les utilisateurs.')
+      }
+    } catch (error) {
+      console.error('Erreur chargement utilisateurs:', error)
+      setUsersMessage(
+        error.response?.data?.message ||
+        'Impossible de charger les utilisateurs.'
+      )
+    } finally {
+      setUsersLoading(false)
+    }
+  }
+
+  // Charger les commerçants en attente
+  const fetchPendingMerchants = async () => {
+    setMerchantsLoading(true)
+    setMerchantMessage('')
+
+    try {
+      const response = await api.get('/api/users/merchants/pending')
+
+      if (response.data.success) {
+        setPendingMerchants(response.data.merchants || [])
+      } else {
+        setMerchantMessage('Impossible de récupérer les demandes.')
+      }
+    } catch (error) {
+      console.error('Erreur commerçants:', error)
+      setMerchantMessage(
+        error.response?.data?.message ||
+        'Erreur lors du chargement des demandes.'
+      )
+    } finally {
+      setMerchantsLoading(false)
+    }
+  }
+
+  // Charger les données lorsque l'admin se connecte
   useEffect(() => {
     if (currentUser?.role === 'admin') {
       fetchPendingMerchants()
+      fetchAllUsers()
     }
   }, [currentUser])
-// Charger les commerçants en attente
-const fetchPendingMerchants = async () => {
-  setMerchantsLoading(true)
-  setMerchantMessage('')
 
-  try {
-    const response = await api.get('/api/users/merchants/pending')
+  // Approuver ou refuser un commerçant
+  const handleMerchantAction = async (merchantId, action) => {
+    const label = action === 'approve' ? 'approuver' : 'refuser'
 
-    if (response.data.success) {
-      setPendingMerchants(response.data.merchants || [])
+    if (!window.confirm(`Voulez-vous vraiment ${label} ce commerçant ?`)) {
+      return
     }
-  } catch (error) {
-    console.error(error)
-    setMerchantMessage(
-      error.response?.data?.message ||
-      'Erreur lors du chargement des demandes.'
-    )
-  } finally {
-    setMerchantsLoading(false)
+
+    setMerchantActionLoading(merchantId)
+    setMerchantMessage('')
+
+    try {
+      const response = await api.put(
+        `/api/users/${merchantId}/${action}`
+      )
+
+      setMerchantMessage(
+        response.data.message || 'Opération effectuée avec succès.'
+      )
+
+      await fetchPendingMerchants()
+      await fetchAllUsers()
+    } catch (error) {
+      console.error('Erreur action commerçant:', error)
+      setMerchantMessage(
+        error.response?.data?.message ||
+        'Une erreur est survenue.'
+      )
+    } finally {
+      setMerchantActionLoading(null)
+    }
   }
-}
 
-// Approuver ou refuser un commerçant
-const handleMerchantAction = async (merchantId, action) => {
-  const label = action === 'approve' ? 'approuver' : 'refuser'
-
-  if (!window.confirm(`Voulez-vous vraiment ${label} ce commerçant ?`)) {
-    return
-  }
-
-  setMerchantActionLoading(merchantId)
-  setMerchantMessage('')
-
-  try {
-    const response = await api.put(
-      `/api/users/${merchantId}/${action}`
-    )
-
-    setMerchantMessage(
-      response.data.message || 'Opération effectuée avec succès.'
-    )
-
-    await fetchPendingMerchants()
-  } catch (error) {
-    console.error(error)
-    setMerchantMessage(
-      error.response?.data?.message ||
-      'Une erreur est survenue.'
-    )
-  } finally {
-    setMerchantActionLoading(null)
-  }
-}
   // Offres de démonstration
   const offers = [
     {
@@ -181,7 +217,7 @@ const handleMerchantAction = async (merchantId, action) => {
       ).toFixed(3)
     : '0.000'
 
-  // Champs du formulaire
+  // Changement des champs du formulaire
   const handleAuthChange = (event) => {
     const { name, value } = event.target
 
@@ -191,6 +227,7 @@ const handleMerchantAction = async (merchantId, action) => {
     }))
   }
 
+  // Ouvrir le formulaire de connexion ou inscription
   const openAuth = (mode) => {
     setAuthMode(mode)
     setAuthError('')
@@ -264,11 +301,13 @@ const handleMerchantAction = async (merchantId, action) => {
     setCurrentUser(null)
     setAuthMode(null)
     setReservations([])
+    setPendingMerchants([])
+    setAllUsers([])
     setAuthError('')
     setAuthSuccess('')
   }
 
-  // Réservation (étudiant uniquement)
+  // Réservation étudiant
   const handleReservation = () => {
     if (!selectedOffer || quantity < 1 || quantity > selectedOffer.portions) {
       return
@@ -301,6 +340,7 @@ const handleMerchantAction = async (merchantId, action) => {
     setReservationSuccess(true)
   }
 
+  // Annuler une réservation
   const handleCancelReservation = (reservationId) => {
     const confirmCancel = window.confirm(
       'Voulez-vous vraiment annuler cette réservation ?'
@@ -317,13 +357,37 @@ const handleMerchantAction = async (merchantId, action) => {
     )
   }
 
+  // Défilement vers une section
   const scrollTo = (id) => {
     document.getElementById(id)?.scrollIntoView({
       behavior: 'smooth'
     })
   }
 
-  // Pendant la vérification de la session
+  // Libellés des rôles
+  const getRoleLabel = (role) => {
+    const roles = {
+      admin: 'Administrateur',
+      student: 'Étudiant',
+      merchant: 'Commerçant'
+    }
+
+    return roles[role] || role || 'Non défini'
+  }
+
+  // Libellés des statuts
+  const getStatusLabel = (status) => {
+    const statuses = {
+      active: 'Actif',
+      pending: 'En attente',
+      rejected: 'Refusé',
+      inactive: 'Inactif'
+    }
+
+    return statuses[status] || status || 'Non défini'
+  }
+
+  // Chargement de la session
   if (authChecking) {
     return (
       <div className="app">
@@ -441,10 +505,12 @@ const handleMerchantAction = async (merchantId, action) => {
       <div className="app">
         <header className="navbar">
           <div className="logo">Campus<span>Save</span></div>
+
           <div className="nav-buttons">
             <span className="user-welcome">
               Administrateur : {currentUser.fullName}
             </span>
+
             <button className="login-btn" onClick={handleLogout}>
               Déconnexion
             </button>
@@ -458,20 +524,27 @@ const handleMerchantAction = async (merchantId, action) => {
             <p>Gérez la plateforme CampusSave.</p>
           </div>
 
+          {/* Cartes statistiques */}
           <div className="dashboard-grid">
             <div className="dashboard-card">
               <span>👥</span>
               <h3>Utilisateurs</h3>
-              <p>Consultez et gérez les comptes utilisateurs.</p>
-              <strong>Fonctionnalité à connecter</strong>
+              <p>Consultez les comptes de la plateforme.</p>
+              <strong>
+                {usersLoading ? 'Chargement...' : `${allUsers.length} utilisateur(s)`}
+              </strong>
             </div>
 
-           <div className="dashboard-card">
-  <span>⏳</span>
-  <h3>Demandes commerçants</h3>
-  <p>Validez ou refusez les demandes d'inscription.</p>
-  <strong>{pendingMerchants.length} demande(s) en attente</strong>
-</div>
+            <div className="dashboard-card">
+              <span>⏳</span>
+              <h3>Demandes commerçants</h3>
+              <p>Validez ou refusez les demandes d'inscription.</p>
+              <strong>
+                {merchantsLoading
+                  ? 'Chargement...'
+                  : `${pendingMerchants.length} demande(s) en attente`}
+              </strong>
+            </div>
 
             <div className="dashboard-card">
               <span>🍽️</span>
@@ -487,67 +560,139 @@ const handleMerchantAction = async (merchantId, action) => {
               <strong>Fonctionnalité à connecter</strong>
             </div>
           </div>
-<section className="admin-merchants-section">
-  <div className="section-heading">
-    <span>GESTION DES COMMERÇANTS</span>
-    <h2>Demandes d'inscription</h2>
-    <p>Examinez les demandes et choisissez d'approuver ou de refuser.</p>
-  </div>
 
-  <button
-    className="confirm-reservation"
-    onClick={fetchPendingMerchants}
-    disabled={merchantsLoading}
-  >
-    {merchantsLoading ? 'Chargement...' : 'Actualiser les demandes'}
-  </button>
+          {/* Gestion des commerçants */}
+          <section className="admin-merchants-section">
+            <div className="section-heading">
+              <span>GESTION DES COMMERÇANTS</span>
+              <h2>Demandes d'inscription</h2>
+              <p>
+                Examinez les demandes et choisissez d'approuver ou de refuser.
+              </p>
+            </div>
 
-  {merchantMessage && (
-    <p className="auth-success">{merchantMessage}</p>
-  )}
-
-  {merchantsLoading ? (
-    <p>Chargement des demandes...</p>
-  ) : pendingMerchants.length === 0 ? (
-    <p>Aucune demande commerçant en attente.</p>
-  ) : (
-    <div className="reservations-list">
-      {pendingMerchants.map(merchant => (
-        <div className="reservation-card" key={merchant.uid}>
-          <h3>{merchant.fullName || merchant.name || 'Commerçant'}</h3>
-
-          <p>📧 {merchant.email || 'E-mail non disponible'}</p>
-          <p>📞 {merchant.phone || 'Téléphone non disponible'}</p>
-          <p>Statut : En attente</p>
-
-          <div className="admin-merchant-actions">
             <button
               className="confirm-reservation"
-              disabled={merchantActionLoading === merchant.uid}
-              onClick={() => handleMerchantAction(merchant.uid, 'approve')}
+              onClick={fetchPendingMerchants}
+              disabled={merchantsLoading}
             >
-              {merchantActionLoading === merchant.id
-                ? 'Traitement...'
-                : '✓ Approuver'}
+              {merchantsLoading
+                ? 'Chargement...'
+                : 'Actualiser les demandes'}
             </button>
 
+            {merchantMessage && (
+              <p className="auth-success">{merchantMessage}</p>
+            )}
+
+            {merchantsLoading ? (
+              <p>Chargement des demandes...</p>
+            ) : pendingMerchants.length === 0 ? (
+              <p>Aucune demande commerçant en attente.</p>
+            ) : (
+              <div className="reservations-list">
+                {pendingMerchants.map(merchant => (
+                  <div className="reservation-card" key={merchant.uid}>
+                    <h3>
+                      {merchant.fullName || merchant.name || 'Commerçant'}
+                    </h3>
+
+                    <p>📧 {merchant.email || 'E-mail non disponible'}</p>
+                    <p>📞 {merchant.phone || 'Téléphone non disponible'}</p>
+                    <p>Statut : En attente</p>
+
+                    <div className="admin-merchant-actions">
+                      <button
+                        className="confirm-reservation"
+                        disabled={merchantActionLoading === merchant.uid}
+                        onClick={() =>
+                          handleMerchantAction(merchant.uid, 'approve')
+                        }
+                      >
+                        {merchantActionLoading === merchant.uid
+                          ? 'Traitement...'
+                          : '✓ Approuver'}
+                      </button>
+
+                      <button
+                        className="cancel-reservation-btn"
+                        disabled={merchantActionLoading === merchant.uid}
+                        onClick={() =>
+                          handleMerchantAction(merchant.uid, 'reject')
+                        }
+                      >
+                        {merchantActionLoading === merchant.uid
+                          ? 'Traitement...'
+                          : '✕ Refuser'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Gestion de tous les utilisateurs */}
+          <section className="admin-users-section">
+            <div className="section-heading">
+              <span>GESTION DE LA PLATEFORME</span>
+              <h2>Tous les utilisateurs</h2>
+              <p>
+                Consultez les comptes étudiants, commerçants et administrateurs.
+              </p>
+            </div>
+
             <button
-              className="cancel-reservation-btn"
-              disabled={merchantActionLoading === merchant.id}
-              onClick={() => handleMerchantAction(merchant.uid, 'reject')}
+              className="confirm-reservation"
+              onClick={fetchAllUsers}
+              disabled={usersLoading}
             >
-              ✕ Refuser
+              {usersLoading ? 'Chargement...' : 'Actualiser les utilisateurs'}
             </button>
-          </div>
-        </div>
-      ))}
-    </div>
-  )}
-</section>
+
+            {usersMessage && (
+              <p className="auth-error">{usersMessage}</p>
+            )}
+
+            {usersLoading ? (
+              <p>Chargement des utilisateurs...</p>
+            ) : allUsers.length === 0 ? (
+              <p>Aucun utilisateur trouvé.</p>
+            ) : (
+              <div className="reservations-list">
+                {allUsers.map(user => (
+                  <div className="reservation-card" key={user.uid}>
+                    <div className="reservation-card-header">
+                      <h3>
+                        {user.fullName || user.name || 'Utilisateur'}
+                      </h3>
+
+                      <span className="reservation-status">
+                        {getStatusLabel(user.status)}
+                      </span>
+                    </div>
+
+                    <p>📧 {user.email || 'E-mail non disponible'}</p>
+
+                    <div className="reservation-card-details">
+                      <span>
+                        Type de compte : <strong>{getRoleLabel(user.role)}</strong>
+                      </span>
+                    </div>
+
+                    <p>
+                      Statut du compte : {getStatusLabel(user.status)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
           <div className="dashboard-notice">
             Vous êtes connecté en tant qu'administrateur.
-            Les outils de gestion seront connectés aux API backend
-            dans les prochaines étapes.
+            Vous pouvez consulter les utilisateurs et gérer les demandes
+            d'inscription des commerçants.
           </div>
         </main>
       </div>
@@ -567,9 +712,11 @@ const handleMerchantAction = async (merchantId, action) => {
         <nav>
           <a href="#accueil">Accueil</a>
           <a href="#offres">Nos offres</a>
+
           {currentUser?.role === 'student' && (
             <a href="#reservations">Mes réservations</a>
           )}
+
           <a href="#comment">Comment ça marche</a>
         </nav>
 
@@ -579,16 +726,24 @@ const handleMerchantAction = async (merchantId, action) => {
               <span className="user-welcome">
                 Bonjour, {currentUser.fullName}
               </span>
+
               <button className="login-btn" onClick={handleLogout}>
                 Déconnexion
               </button>
             </>
           ) : (
             <>
-              <button className="login-btn" onClick={() => openAuth('login')}>
+              <button
+                className="login-btn"
+                onClick={() => openAuth('login')}
+              >
                 Connexion
               </button>
-              <button className="signup-btn" onClick={() => openAuth('register')}>
+
+              <button
+                className="signup-btn"
+                onClick={() => openAuth('register')}
+              >
                 Inscription
               </button>
             </>
@@ -616,21 +771,38 @@ const handleMerchantAction = async (merchantId, action) => {
           </p>
 
           <div className="hero-buttons">
-            <button className="primary-btn" onClick={() => scrollTo('offres')}>
+            <button
+              className="primary-btn"
+              onClick={() => scrollTo('offres')}
+            >
               Découvrir les offres →
             </button>
 
             {currentUser?.role === 'student' && (
-              <button className="secondary-btn" onClick={() => scrollTo('reservations')}>
+              <button
+                className="secondary-btn"
+                onClick={() => scrollTo('reservations')}
+              >
                 Mes réservations
               </button>
             )}
           </div>
 
           <div className="hero-stats">
-            <div><strong>500+</strong><small>Repas sauvés</small></div>
-            <div><strong>50+</strong><small>Commerçants</small></div>
-            <div><strong>1000+</strong><small>Étudiants</small></div>
+            <div>
+              <strong>500+</strong>
+              <small>Repas sauvés</small>
+            </div>
+
+            <div>
+              <strong>50+</strong>
+              <small>Commerçants</small>
+            </div>
+
+            <div>
+              <strong>1000+</strong>
+              <small>Étudiants</small>
+            </div>
           </div>
         </div>
 
@@ -648,14 +820,20 @@ const handleMerchantAction = async (merchantId, action) => {
         <div className="section-heading">
           <span>LES BONNES AFFAIRES</span>
           <h2>Les offres du moment</h2>
-          <p>Des repas de qualité à petits prix, disponibles près de vous.</p>
+          <p>
+            Des repas de qualité à petits prix, disponibles près de vous.
+          </p>
         </div>
 
         <div className="category-filters">
           {['Tous', 'Sandwichs', 'Pizzas', 'Salades'].map(category => (
             <button
               key={category}
-              className={activeCategory === category ? 'filter-btn active' : 'filter-btn'}
+              className={
+                activeCategory === category
+                  ? 'filter-btn active'
+                  : 'filter-btn'
+              }
               onClick={() => setActiveCategory(category)}
             >
               {category}
@@ -665,7 +843,9 @@ const handleMerchantAction = async (merchantId, action) => {
 
         <p className="offers-count">
           <strong>{filteredOffers.length}</strong>{' '}
-          {filteredOffers.length > 1 ? 'offres disponibles' : 'offre disponible'}
+          {filteredOffers.length > 1
+            ? 'offres disponibles'
+            : 'offre disponible'}
         </p>
 
         <div className="offers-container">
@@ -679,7 +859,10 @@ const handleMerchantAction = async (merchantId, action) => {
 
                 <div className="offer-info">
                   <h3>{offer.name}</h3>
-                  <span className="offer-category">{offer.category}</span>
+                  <span className="offer-category">
+                    {offer.category}
+                  </span>
+
                   <p>📍 {offer.location}</p>
 
                   <div className="offer-details">
@@ -692,6 +875,7 @@ const handleMerchantAction = async (merchantId, action) => {
                       <span>📦 Disponibilité</span>
                       <strong>{offer.portions} portions</strong>
                     </div>
+
                     <div className="portions-bar">
                       <div
                         className="portions-progress"
@@ -711,7 +895,9 @@ const handleMerchantAction = async (merchantId, action) => {
                     onClick={() => {
                       if (!currentUser) {
                         openAuth('login')
-                        setAuthError('Connectez-vous en tant qu’étudiant pour réserver.')
+                        setAuthError(
+                          'Connectez-vous en tant qu’étudiant pour réserver.'
+                        )
                         return
                       }
 
@@ -744,7 +930,9 @@ const handleMerchantAction = async (merchantId, action) => {
           <div className="section-heading">
             <span>VOTRE ESPACE</span>
             <h2>Mes réservations</h2>
-            <p>Retrouvez vos réservations effectuées sur CampusSave.</p>
+            <p>
+              Retrouvez vos réservations effectuées sur CampusSave.
+            </p>
           </div>
 
           {reservations.length > 0 ? (
@@ -752,18 +940,24 @@ const handleMerchantAction = async (merchantId, action) => {
               {reservations.map(reservation => (
                 <div
                   className={`reservation-card ${
-                    reservation.status === 'Annulée' ? 'reservation-cancelled' : ''
+                    reservation.status === 'Annulée'
+                      ? 'reservation-cancelled'
+                      : ''
                   }`}
                   key={reservation.id}
                 >
                   <div className="reservation-card-header">
                     <h3>{reservation.name}</h3>
+
                     <span
                       className={`reservation-status ${
-                        reservation.status === 'Annulée' ? 'status-cancelled' : ''
+                        reservation.status === 'Annulée'
+                          ? 'status-cancelled'
+                          : ''
                       }`}
                     >
-                      {reservation.status === 'Annulée' ? '✕' : '✓'} {reservation.status}
+                      {reservation.status === 'Annulée' ? '✕' : '✓'}{' '}
+                      {reservation.status}
                     </span>
                   </div>
 
@@ -780,7 +974,9 @@ const handleMerchantAction = async (merchantId, action) => {
                   {reservation.status === 'Confirmée' && (
                     <button
                       className="cancel-reservation-btn"
-                      onClick={() => handleCancelReservation(reservation.id)}
+                      onClick={() =>
+                        handleCancelReservation(reservation.id)
+                      }
                     >
                       Annuler la réservation
                     </button>
@@ -799,6 +995,7 @@ const handleMerchantAction = async (merchantId, action) => {
               <span>📋</span>
               <h3>Aucune réservation pour le moment</h3>
               <p>Vos prochaines réservations apparaîtront ici.</p>
+
               <button onClick={() => scrollTo('offres')}>
                 Découvrir les offres
               </button>
@@ -811,7 +1008,10 @@ const handleMerchantAction = async (merchantId, action) => {
       {selectedOffer && (
         <div className="modal-overlay">
           <div className="reservation-modal">
-            <button className="modal-close" onClick={() => setSelectedOffer(null)}>
+            <button
+              className="modal-close"
+              onClick={() => setSelectedOffer(null)}
+            >
               ×
             </button>
 
@@ -819,10 +1019,14 @@ const handleMerchantAction = async (merchantId, action) => {
             <h2>Réserver votre repas</h2>
             <h3>{selectedOffer.name}</h3>
             <p>{selectedOffer.location}</p>
-            <div className="modal-price">{selectedOffer.price}</div>
+
+            <div className="modal-price">
+              {selectedOffer.price}
+            </div>
 
             <div className="quantity-selector">
               <label>Nombre de portions</label>
+
               <div>
                 <button
                   onClick={() => setQuantity(Math.max(1, quantity - 1))}
@@ -830,9 +1034,15 @@ const handleMerchantAction = async (merchantId, action) => {
                 >
                   −
                 </button>
+
                 <strong>{quantity}</strong>
+
                 <button
-                  onClick={() => setQuantity(Math.min(selectedOffer.portions, quantity + 1))}
+                  onClick={() =>
+                    setQuantity(
+                      Math.min(selectedOffer.portions, quantity + 1)
+                    )
+                  }
                   disabled={quantity >= selectedOffer.portions}
                 >
                   +
@@ -845,7 +1055,10 @@ const handleMerchantAction = async (merchantId, action) => {
               <strong>{totalPrice} DT</strong>
             </div>
 
-            <button className="confirm-reservation" onClick={handleReservation}>
+            <button
+              className="confirm-reservation"
+              onClick={handleReservation}
+            >
               Confirmer la réservation
             </button>
           </div>
@@ -858,7 +1071,10 @@ const handleMerchantAction = async (merchantId, action) => {
           <div className="reservation-modal success-modal">
             <div className="success-icon">✓</div>
             <h2>Réservation confirmée !</h2>
-            <p>Votre réservation a été enregistrée avec succès.</p>
+            <p>
+              Votre réservation a été enregistrée avec succès.
+            </p>
+
             <button
               className="confirm-reservation"
               onClick={() => {
@@ -890,7 +1106,9 @@ const handleMerchantAction = async (merchantId, action) => {
             <span className="modal-tag">CAMPUSSAVE</span>
 
             <h2>
-              {authMode === 'login' ? 'Bienvenue !' : 'Créer un compte'}
+              {authMode === 'login'
+                ? 'Bienvenue !'
+                : 'Créer un compte'}
             </h2>
 
             <p>
@@ -899,13 +1117,19 @@ const handleMerchantAction = async (merchantId, action) => {
                 : 'Rejoignez la communauté CampusSave.'}
             </p>
 
-            {authError && <p className="auth-error">{authError}</p>}
-            {authSuccess && <p className="auth-success">{authSuccess}</p>}
+            {authError && (
+              <p className="auth-error">{authError}</p>
+            )}
+
+            {authSuccess && (
+              <p className="auth-success">{authSuccess}</p>
+            )}
 
             <form onSubmit={handleAuthSubmit}>
               {authMode === 'register' && (
                 <>
                   <label>Nom complet</label>
+
                   <input
                     type="text"
                     name="fullName"
@@ -916,6 +1140,7 @@ const handleMerchantAction = async (merchantId, action) => {
                   />
 
                   <label>Type de compte</label>
+
                   <select
                     name="role"
                     value={authForm.role}
@@ -928,6 +1153,7 @@ const handleMerchantAction = async (merchantId, action) => {
               )}
 
               <label>Adresse e-mail</label>
+
               <input
                 type="email"
                 name="email"
@@ -938,6 +1164,7 @@ const handleMerchantAction = async (merchantId, action) => {
               />
 
               <label>Mot de passe</label>
+
               <input
                 type="password"
                 name="password"
@@ -966,13 +1193,18 @@ const handleMerchantAction = async (merchantId, action) => {
                 ? 'Vous n’avez pas de compte ?'
                 : 'Vous avez déjà un compte ?'}
               {' '}
+
               <button
                 type="button"
-                onClick={() => openAuth(
-                  authMode === 'login' ? 'register' : 'login'
-                )}
+                onClick={() =>
+                  openAuth(
+                    authMode === 'login' ? 'register' : 'login'
+                  )
+                }
               >
-                {authMode === 'login' ? "S'inscrire" : 'Se connecter'}
+                {authMode === 'login'
+                  ? "S'inscrire"
+                  : 'Se connecter'}
               </button>
             </p>
           </div>
@@ -982,7 +1214,9 @@ const handleMerchantAction = async (merchantId, action) => {
       {/* Footer */}
       <footer className="footer" id="comment">
         <h2>CampusSave</h2>
-        <p>Ensemble, réduisons le gaspillage alimentaire.</p>
+        <p>
+          Ensemble, réduisons le gaspillage alimentaire.
+        </p>
         <small>© 2026 CampusSave. Tous droits réservés.</small>
       </footer>
     </div>
