@@ -12,3 +12,14 @@ build/
 .DS_Store
 google-services.json
 GoogleService-Info.plist
+**/.gradle/
+**/local.properties
+**/key.properties
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/Flutter/ephemeral/
+**/macos/Flutter/ephemeral/
+*.jks
+*.keystore
+*.p12
+*.pfx
