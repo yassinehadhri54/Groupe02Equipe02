@@ -94,10 +94,10 @@ const getMerchantReservations = async (req, res) => {
 };
 
 
-// Confirm, reject or complete reservation
+// Confirm, reject or complete reservation - Merchant
 const updateReservationStatus = async (req, res) => {
     try {
-        const { status } = req.body;
+        const { status } = req.body || {};
 
         if (!status) {
             return res.status(400).json({
@@ -107,8 +107,8 @@ const updateReservationStatus = async (req, res) => {
         }
 
         const result = await reservationService.updateReservationStatus(
-            req.params.id,
             req.user.uid,
+            req.params.id,
             status
         );
 
@@ -124,12 +124,15 @@ const updateReservationStatus = async (req, res) => {
         const messages = [
             "Invalid reservation status.",
             "Reservation not found.",
-            "You are not allowed to manage this reservation.",
-            "Only pending reservations can be confirmed or rejected.",
+            "Shop not found.",
+            "You are not allowed to update this reservation.",
+            "Only pending reservations can be confirmed.",
+            "Only pending reservations can be rejected.",
             "Only confirmed reservations can be completed.",
-            "Reservation has no associated shop.",
-            "Offer not found.",
-            "Invalid offer quantity."
+            "Reservation must be paid before confirmation.",
+            "Reservation must be paid before completion.",
+            "Cannot reject a reservation while payment is in progress or paid.",
+            "Offer not found."
         ];
 
         const statusCode = error.message === "Reservation not found."
@@ -142,6 +145,7 @@ const updateReservationStatus = async (req, res) => {
         });
     }
 };
+
 
 
 // Cancel reservation - Student

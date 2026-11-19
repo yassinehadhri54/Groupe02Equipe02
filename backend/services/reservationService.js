@@ -2,199 +2,238 @@
 const { db } = require("../config/firebase");
 const { FieldValue } = require("firebase-admin/firestore");
 
+const reservationsCollection = db.collection("reservations");
 const offersCollection = db.collection("offers");
 const shopsCollection = db.collection("shops");
-const reservationsCollection = db.collection("reservations");
 
-// Create a reservation - Student
+const getUserId = (user) => user?.uid || user?.userId || null;
+
+// Create a reservation
 const createReservation = async (studentId, offerId, quantity) => {
-    const qty = Number(quantity);
-
-    if (!Number.isInteger(qty) || qty <= 0) {
-        throw new Error("Quantity must be a positive integer.");
+    if (!studentId || !offerId) {
+        throw new Error("Student ID and offer ID are required.");
     }
 
-    if (!offerId || typeof offerId !== "string") {
-        throw new Error("A valid offer ID is required.");
+    const requestedQuantity = Number(quantity);
+
+    if (
+        !Number.isInteger(requestedQuantity) ||
+        requestedQuantity <= 0
+    ) {
+        throw new Error("Quantity must be a positive integer.");
     }
 
     const offerRef = offersCollection.doc(offerId);
     const reservationRef = reservationsCollection.doc();
 
-    return db.runTransaction(async (transaction) => {
-        const offerDoc = await transaction.get(offerRef);
+    const reservation = await db.runTransaction(async (transaction) => {
+        const offerSnapshot = await transaction.get(offerRef);
 
-        if (!offerDoc.exists) {
+        if (!offerSnapshot.exists) {
             throw new Error("Offer not found.");
         }
 
-        const offer = offerDoc.data();
-        const available = Number(offer.availableQuantity);
-        const price = Number(offer.discountPrice);
+        const offer = offerSnapshot.data();
 
-        if (offer.status !== "available") {
-            throw new Error("This offer is not available.");
+        const availableQuantity = Number(offer.availableQuantity);
+
+        if (
+            !Number.isFinite(availableQuantity) ||
+            availableQuantity < requestedQuantity
+        ) {
+            throw new Error("Not enough offer quantity available.");
         }
 
-        if (!Number.isInteger(available) || available < qty) {
-            throw new Error("Not enough quantity available.");
-        }
+        const unitPrice = Number(
+            offer.discountedPrice ?? offer.price
+        );
 
-        if (!Number.isFinite(price) || price <= 0) {
+        if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
             throw new Error("Invalid offer price.");
         }
 
-        if (!offer.shopId || !offer.name || !offer.shopName) {
-            throw new Error("Offer information is incomplete.");
+        if (!offer.shopId) {
+            throw new Error("Offer is not linked to a shop.");
         }
 
-        const reservation = {
+        const shopRef = shopsCollection.doc(offer.shopId);
+        const shopSnapshot = await transaction.get(shopRef);
+
+        if (!shopSnapshot.exists) {
+            throw new Error("Shop not found.");
+        }
+
+        const shop = shopSnapshot.data();
+
+        const totalPrice = Number(
+            (unitPrice * requestedQuantity).toFixed(3)
+        );
+
+        const reservationData = {
             reservationId: reservationRef.id,
             studentId,
             offerId,
             shopId: offer.shopId,
-            shopName: offer.shopName,
-            offerName: offer.name,
-            quantity: qty,
-            unitPrice: price,
-            totalPrice: price * qty,
+            shopName: shop.name || offer.shopName || "",
+            offerName: offer.name || offer.title || offer.offerName || "",
+            quantity: requestedQuantity,
+            unitPrice,
+            totalPrice,
             status: "pending",
+            paymentStatus: "unpaid",
             createdAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp()
         };
 
         transaction.update(offerRef, {
-            availableQuantity: available - qty,
+            availableQuantity: availableQuantity - requestedQuantity,
             updatedAt: FieldValue.serverTimestamp()
         });
 
-        transaction.set(reservationRef, reservation);
+        transaction.set(reservationRef, reservationData);
 
         return {
-            ...reservation,
-            createdAt: null,
-            updatedAt: null
+            ...reservationData,
+            reservationId: reservationRef.id
         };
     });
+
+    return reservation;
 };
 
-
-// Get reservations of a student
+// Get reservations belonging to a student
 const getMyReservations = async (studentId) => {
     const snapshot = await reservationsCollection
         .where("studentId", "==", studentId)
         .get();
 
     return snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data()
+        ...doc.data(),
+        reservationId: doc.id
     }));
 };
 
-
-// Get reservations of a merchant
+// Get reservations belonging to shops managed by a merchant
 const getMerchantReservations = async (merchantId) => {
     const shopsSnapshot = await shopsCollection
-        .where("ownerId", "==", merchantId)
+        .where("merchantId", "==", merchantId)
         .get();
 
     if (shopsSnapshot.empty) {
         return [];
     }
 
-    const results = await Promise.all(
-        shopsSnapshot.docs.map(async (shopDoc) => {
-            const reservationsSnapshot = await reservationsCollection
-                .where("shopId", "==", shopDoc.id)
-                .get();
+    const shopIds = shopsSnapshot.docs.map((doc) => doc.id);
+    const reservations = [];
 
-            return reservationsSnapshot.docs.map((doc) => ({
-                id: doc.id,
-                ...doc.data()
-            }));
-        })
-    );
+    // Firestore "in" queries accept a maximum of 30 values.
+    for (let i = 0; i < shopIds.length; i += 30) {
+        const shopIdsBatch = shopIds.slice(i, i + 30);
 
-    return results.flat().sort((a, b) => {
-        const dateA = a.createdAt?.toMillis?.() || 0;
-        const dateB = b.createdAt?.toMillis?.() || 0;
-        return dateB - dateA;
-    });
+        const snapshot = await reservationsCollection
+            .where("shopId", "in", shopIdsBatch)
+            .get();
+
+        snapshot.docs.forEach((doc) => {
+            reservations.push({
+                ...doc.data(),
+                reservationId: doc.id
+            });
+        });
+    }
+
+    return reservations;
 };
 
-
-// Update reservation status - Merchant
+// Merchant confirms, rejects, or completes a reservation
 const updateReservationStatus = async (
-    reservationId,
     merchantId,
+    reservationId,
     newStatus
 ) => {
-    if (!["confirmed", "rejected", "completed"].includes(newStatus)) {
+    const allowedStatuses = ["confirmed", "rejected", "completed"];
+
+    if (!allowedStatuses.includes(newStatus)) {
         throw new Error("Invalid reservation status.");
     }
 
     const reservationRef = reservationsCollection.doc(reservationId);
 
     return db.runTransaction(async (transaction) => {
-        const reservationDoc = await transaction.get(reservationRef);
+        const reservationSnapshot = await transaction.get(reservationRef);
 
-        if (!reservationDoc.exists) {
+        if (!reservationSnapshot.exists) {
             throw new Error("Reservation not found.");
         }
 
-        const reservation = reservationDoc.data();
-
-        if (!reservation.shopId) {
-            throw new Error("Reservation has no associated shop.");
-        }
+        const reservation = reservationSnapshot.data();
 
         const shopRef = shopsCollection.doc(reservation.shopId);
-        const shopDoc = await transaction.get(shopRef);
+        const shopSnapshot = await transaction.get(shopRef);
 
-        if (!shopDoc.exists || shopDoc.data().ownerId !== merchantId) {
-            throw new Error("You are not allowed to manage this reservation.");
+        if (!shopSnapshot.exists) {
+            throw new Error("Shop not found.");
         }
 
-        let offerRef = null;
-        let offerDoc = null;
+        const shop = shopSnapshot.data();
+        const shopMerchantId = shop.merchantId || shop.ownerId || shop.userId;
+
+        if (shopMerchantId !== merchantId) {
+            throw new Error("You are not allowed to update this reservation.");
+        }
+
+        if (newStatus === "confirmed") {
+            if (reservation.status !== "pending") {
+                throw new Error("Only pending reservations can be confirmed.");
+            }
+
+            if (reservation.paymentStatus !== "paid") {
+                throw new Error("Reservation must be paid before confirmation.");
+            }
+        }
 
         if (newStatus === "rejected") {
-            offerRef = offersCollection.doc(reservation.offerId);
-            offerDoc = await transaction.get(offerRef);
+            if (reservation.status !== "pending") {
+                throw new Error("Only pending reservations can be rejected.");
+            }
 
-            if (!offerDoc.exists) {
+            if (
+                ["processing", "pending", "paid"].includes(
+                    reservation.paymentStatus
+                )
+            ) {
+                throw new Error(
+                    "Cannot reject a reservation while payment is in progress or paid."
+                );
+            }
+
+            const offerRef = offersCollection.doc(reservation.offerId);
+            const offerSnapshot = await transaction.get(offerRef);
+
+            if (!offerSnapshot.exists) {
                 throw new Error("Offer not found.");
             }
-        }
 
-        if (
-            ["confirmed", "rejected"].includes(newStatus) &&
-            reservation.status !== "pending"
-        ) {
-            throw new Error("Only pending reservations can be confirmed or rejected.");
-        }
-
-        if (
-            newStatus === "completed" &&
-            reservation.status !== "confirmed"
-        ) {
-            throw new Error("Only confirmed reservations can be completed.");
-        }
-
-        // All reads are completed before writes.
-        if (newStatus === "rejected") {
-            const currentQuantity = Number(
-                offerDoc.data().availableQuantity
-            );
-
-            if (!Number.isInteger(currentQuantity) || currentQuantity < 0) {
-                throw new Error("Invalid offer quantity.");
-            }
+            const offer = offerSnapshot.data();
+            const currentQuantity = Number(offer.availableQuantity);
 
             transaction.update(offerRef, {
-                availableQuantity: currentQuantity + reservation.quantity,
+                availableQuantity:
+                    currentQuantity + Number(reservation.quantity),
                 updatedAt: FieldValue.serverTimestamp()
             });
+        }
+
+        if (newStatus === "completed") {
+            if (reservation.status !== "confirmed") {
+                throw new Error(
+                    "Only confirmed reservations can be completed."
+                );
+            }
+
+            if (reservation.paymentStatus !== "paid") {
+                throw new Error("Reservation must be paid before completion.");
+            }
         }
 
         transaction.update(reservationRef, {
@@ -203,25 +242,25 @@ const updateReservationStatus = async (
         });
 
         return {
+            ...reservation,
             reservationId,
             status: newStatus
         };
     });
 };
 
-
-// Cancel reservation - Student
-const cancelReservation = async (reservationId, studentId) => {
+// Student cancels a pending reservation
+const cancelReservation = async (studentId, reservationId) => {
     const reservationRef = reservationsCollection.doc(reservationId);
 
     return db.runTransaction(async (transaction) => {
-        const reservationDoc = await transaction.get(reservationRef);
+        const reservationSnapshot = await transaction.get(reservationRef);
 
-        if (!reservationDoc.exists) {
+        if (!reservationSnapshot.exists) {
             throw new Error("Reservation not found.");
         }
 
-        const reservation = reservationDoc.data();
+        const reservation = reservationSnapshot.data();
 
         if (reservation.studentId !== studentId) {
             throw new Error("You are not allowed to cancel this reservation.");
@@ -231,24 +270,29 @@ const cancelReservation = async (reservationId, studentId) => {
             throw new Error("Only pending reservations can be cancelled.");
         }
 
-        const offerRef = offersCollection.doc(reservation.offerId);
-        const offerDoc = await transaction.get(offerRef);
+        if (
+            ["processing", "pending", "paid"].includes(
+                reservation.paymentStatus
+            )
+        ) {
+            throw new Error(
+                "Cannot cancel a reservation while payment is in progress or paid."
+            );
+        }
 
-        if (!offerDoc.exists) {
+        const offerRef = offersCollection.doc(reservation.offerId);
+        const offerSnapshot = await transaction.get(offerRef);
+
+        if (!offerSnapshot.exists) {
             throw new Error("Offer not found.");
         }
 
-        const currentQuantity = Number(
-            offerDoc.data().availableQuantity
-        );
+        const offer = offerSnapshot.data();
+        const currentQuantity = Number(offer.availableQuantity);
 
-        if (!Number.isInteger(currentQuantity) || currentQuantity < 0) {
-            throw new Error("Invalid offer quantity.");
-        }
-
-        // Restore reserved quantity.
         transaction.update(offerRef, {
-            availableQuantity: currentQuantity + reservation.quantity,
+            availableQuantity:
+                currentQuantity + Number(reservation.quantity),
             updatedAt: FieldValue.serverTimestamp()
         });
 
@@ -258,12 +302,12 @@ const cancelReservation = async (reservationId, studentId) => {
         });
 
         return {
+            ...reservation,
             reservationId,
             status: "cancelled"
         };
     });
 };
-
 
 module.exports = {
     createReservation,
