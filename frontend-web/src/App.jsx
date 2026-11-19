@@ -10,6 +10,30 @@ function App() {
   const [reservationSuccess, setReservationSuccess] = useState(false)
   const [reservations, setReservations] = useState([])
 
+  // Gestion des offres commerçant
+  const [merchantOffers, setMerchantOffers] = useState([])
+  const [platformOffers, setPlatformOffers] = useState([])
+const [platformOffersLoading, setPlatformOffersLoading] = useState(false)
+  const [offersLoading, setOffersLoading] = useState(false)
+  const [offerMessage, setOfferMessage] = useState('')
+  const [offerError, setOfferError] = useState('')
+  const [offerSubmitting, setOfferSubmitting] = useState(false)
+  const [showOfferForm, setShowOfferForm] = useState(false)
+  const [editingOfferId, setEditingOfferId] = useState(null)
+
+  const [offerForm, setOfferForm] = useState({
+    title: '',
+    description: '',
+    category: 'Paniers',
+    originalPrice: '',
+    discountedPrice: '',
+    quantity: '',
+    imageUrl: '',
+    pickupStart: '',
+    pickupEnd: '',
+    address: ''
+  })
+
   // Authentification
   const [authMode, setAuthMode] = useState(null)
   const [currentUser, setCurrentUser] = useState(null)
@@ -202,9 +226,61 @@ function App() {
     }
   ]
 
-  const filteredOffers = offers.filter(
-    offer => activeCategory === 'Tous' || offer.category === activeCategory
+// Adapter les offres du backend au format utilisé par les cartes
+
+const realOffers = platformOffers.map(offer => {
+  const originalPrice = Number(offer.originalPrice ?? 0)
+  const discountedPrice = Number(
+    offer.discountedPrice ?? offer.discountPrice ?? 0
   )
+
+  const pickupStart = offer.pickupStart || ''
+  const pickupEnd = offer.pickupEnd || ''
+
+  const formatPickupTime = (value) => {
+    if (!value) return ''
+
+    if (value.includes('T')) {
+      return new Date(value).toLocaleTimeString('fr-FR', {
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    }
+
+    return value
+  }
+
+  return {
+    ...offer,
+    id: offer.id,
+    name: offer.title || offer.name || 'Offre alimentaire',
+    image: offer.imageUrl || offer.imageURL ||
+      'https://placehold.co/600x400?text=CampusSave',
+    category: offer.category || 'Autres',
+    discount: originalPrice > 0
+      ? `-${Math.round((1 - discountedPrice / originalPrice) * 100)}%`
+      : '',
+    location: offer.address || 'Adresse non renseignée',
+    price: `${discountedPrice.toFixed(3)} DT`,
+    oldPrice: `${originalPrice.toFixed(3)} DT`,
+    portions: Number(
+      offer.quantity ?? offer.availableQuantity ?? 0
+    ),
+    pickup: pickupStart && pickupEnd
+      ? `${formatPickupTime(pickupStart)} - ${formatPickupTime(pickupEnd)}`
+      : 'À confirmer'
+  }
+})
+
+
+// Les étudiants connectés voient les offres réelles
+const displayedOffers = currentUser?.role === 'student'
+  ? realOffers
+  : offers
+
+const filteredOffers = displayedOffers.filter(
+  offer => activeCategory === 'Tous' || offer.category === activeCategory
+)
 
   const totalPrice = selectedOffer
     ? (
@@ -293,6 +369,158 @@ function App() {
     }
   }
 
+  // Charger les offres du commerçant connecté
+  const fetchMerchantOffers = async () => {
+    try {
+      setOffersLoading(true)
+      setOfferError('')
+
+      const response = await api.get('/api/offers/my')
+
+      setMerchantOffers(response.data.offers || [])
+    } catch (error) {
+      setOfferError(
+        error.response?.data?.message ||
+        'Impossible de charger vos offres.'
+      )
+    } finally {
+      setOffersLoading(false)
+    }
+  }
+// Charger les offres de la plateforme
+const fetchPlatformOffers = async () => {
+  try {
+    setPlatformOffersLoading(true)
+
+    const response = await api.get('/api/offers')
+    setPlatformOffers(response.data.offers || [])
+  } catch (error) {
+    console.error('Erreur chargement offres:', error)
+    setPlatformOffers([])
+  } finally {
+    setPlatformOffersLoading(false)
+  }
+}
+  // Réinitialiser le formulaire
+  const resetOfferForm = () => {
+    setOfferForm({
+      title: '',
+      description: '',
+      category: 'Paniers',
+      originalPrice: '',
+      discountedPrice: '',
+      quantity: '',
+      imageUrl: '',
+      pickupStart: '',
+      pickupEnd: '',
+      address: ''
+    })
+
+    setEditingOfferId(null)
+    setShowOfferForm(false)
+  }
+
+  // Créer ou modifier une offre
+  const handleOfferSubmit = async (e) => {
+    e.preventDefault()
+
+    try {
+      setOfferSubmitting(true)
+      setOfferError('')
+      setOfferMessage('')
+
+      const offerData = {
+        ...offerForm,
+        originalPrice: Number(offerForm.originalPrice),
+        discountedPrice: Number(offerForm.discountedPrice),
+        quantity: Number(offerForm.quantity)
+      }
+
+      if (editingOfferId) {
+        await api.put(`/api/offers/${editingOfferId}`, offerData)
+        setOfferMessage('Offre modifiée avec succès.')
+      } else {
+        await api.post('/api/offers', offerData)
+        setOfferMessage('Offre créée avec succès.')
+      }
+
+      resetOfferForm()
+      await fetchMerchantOffers()
+    } catch (error) {
+      setOfferError(
+        error.response?.data?.message ||
+        'Une erreur est survenue lors de l’enregistrement.'
+      )
+    } finally {
+      setOfferSubmitting(false)
+    }
+  }
+
+  // Préparer la modification d'une offre
+  const handleEditOffer = (offer) => {
+    setOfferForm({
+      title: offer.title || '',
+      description: offer.description || '',
+      category: offer.category || 'Paniers',
+      originalPrice: String(offer.originalPrice ?? ''),
+      discountedPrice: String(offer.discountedPrice ?? ''),
+      quantity: String(offer.quantity ?? ''),
+      imageUrl: offer.imageUrl || '',
+      pickupStart: offer.pickupStart || '',
+      pickupEnd: offer.pickupEnd || '',
+      address: offer.address || ''
+    })
+
+    setEditingOfferId(offer.id)
+    setShowOfferForm(true)
+    setOfferMessage('')
+    setOfferError('')
+  }
+
+  // Supprimer une offre
+  const handleDeleteOffer = async (offerId) => {
+    if (!window.confirm('Voulez-vous vraiment supprimer cette offre ?')) {
+      return
+    }
+
+    try {
+      setOfferError('')
+      setOfferMessage('')
+
+      await api.delete(`/api/offers/${offerId}`)
+
+      setOfferMessage('Offre supprimée avec succès.')
+      if (currentUser?.role === 'admin') {
+  await fetchPlatformOffers()
+} else {
+  await fetchMerchantOffers()
+}
+    } catch (error) {
+      setOfferError(
+        error.response?.data?.message ||
+        'Impossible de supprimer cette offre.'
+      )
+    }
+  }
+
+  // Charger les offres lorsque le commerçant est actif
+  useEffect(() => {
+    if (
+      currentUser?.role === 'merchant' &&
+      currentUser?.status === 'active'
+    ) {
+      fetchMerchantOffers()
+    }
+  }, [currentUser])
+// Charger les offres pour les étudiants et administrateurs
+useEffect(() => {
+  if (
+    currentUser?.role === 'student' ||
+    currentUser?.role === 'admin'
+  ) {
+    fetchPlatformOffers()
+  }
+}, [currentUser])
   // Déconnexion
   const handleLogout = () => {
     localStorage.removeItem('campussave_token')
@@ -460,41 +688,290 @@ function App() {
           </div>
         </header>
 
-        <main className="role-dashboard">
-          <div className="dashboard-heading">
-            <span>ESPACE PROFESSIONNEL</span>
-            <h1>Tableau de bord commerçant</h1>
-            <p>Bienvenue sur votre espace CampusSave.</p>
-          </div>
+       
+<main className="role-dashboard">
+  <div className="dashboard-heading">
+    <span>ESPACE PROFESSIONNEL</span>
+    <h1>Tableau de bord commerçant</h1>
+    <p>Bienvenue sur votre espace CampusSave.</p>
+  </div>
 
-          <div className="dashboard-grid">
-            <div className="dashboard-card">
-              <span>🍽️</span>
-              <h3>Mes offres</h3>
-              <p>Gérez vos offres alimentaires et vos produits.</p>
-              <strong>Fonctionnalité à connecter</strong>
+  <div className="dashboard-grid">
+    <div className="dashboard-card">
+      <span>🍽️</span>
+      <h3>Mes offres</h3>
+      <p>Gérez vos offres alimentaires.</p>
+      <strong>
+        {merchantOffers.length} offre(s) publiée(s)
+      </strong>
+    </div>
+
+    <div className="dashboard-card">
+      <span>📋</span>
+      <h3>Réservations reçues</h3>
+      <p>Consultez les réservations des étudiants.</p>
+      <strong>À connecter</strong>
+    </div>
+
+    <div className="dashboard-card">
+      <span>📊</span>
+      <h3>Statistiques</h3>
+      <p>Suivez vos ventes et les repas sauvés.</p>
+      <strong>À connecter</strong>
+    </div>
+  </div>
+
+  <section className="admin-merchants-section">
+    <div className="section-heading">
+      <span>GESTION DES OFFRES</span>
+      <h2>Mes offres alimentaires</h2>
+      <p>Publiez et gérez vos produits sur CampusSave.</p>
+    </div>
+
+    <button
+      className="confirm-reservation"
+      onClick={() => {
+        setShowOfferForm(!showOfferForm)
+        setEditingOfferId(null)
+        setOfferMessage('')
+        setOfferError('')
+        setOfferForm({
+          title: '',
+          description: '',
+          category: 'Paniers',
+          originalPrice: '',
+          discountedPrice: '',
+          quantity: '',
+          imageUrl: '',
+          pickupStart: '',
+          pickupEnd: '',
+          address: ''
+        })
+      }}
+    >
+      {showOfferForm ? 'Fermer le formulaire' : '+ Ajouter une offre'}
+    </button>
+
+    {offerMessage && (
+      <p className="auth-success">{offerMessage}</p>
+    )}
+
+    {offerError && (
+      <p className="auth-error">{offerError}</p>
+    )}
+
+    {showOfferForm && (
+      <form
+        className="merchant-offer-form"
+        onSubmit={handleOfferSubmit}
+      >
+        <h3>
+          {editingOfferId ? 'Modifier mon offre' : 'Nouvelle offre'}
+        </h3>
+
+        <label>Nom de l'offre *</label>
+        <input
+          type="text"
+          required
+          value={offerForm.title}
+          onChange={e => setOfferForm({
+            ...offerForm,
+            title: e.target.value
+          })}
+          placeholder="Ex : Panier surprise"
+        />
+
+        <label>Description *</label>
+        <textarea
+          required
+          value={offerForm.description}
+          onChange={e => setOfferForm({
+            ...offerForm,
+            description: e.target.value
+          })}
+          placeholder="Décrivez votre offre..."
+        />
+
+        <label>Catégorie *</label>
+        <select
+          required
+          value={offerForm.category}
+          onChange={e => setOfferForm({
+            ...offerForm,
+            category: e.target.value
+          })}
+        >
+          <option value="Paniers">Paniers</option>
+          <option value="Repas">Repas</option>
+          <option value="Sandwichs">Sandwichs</option>
+          <option value="Pâtisseries">Pâtisseries</option>
+          <option value="Boissons">Boissons</option>
+          <option value="Autres">Autres</option>
+        </select>
+
+        <label>Prix initial (DT) *</label>
+        <input
+          type="number"
+          min="0.01"
+          step="0.01"
+          required
+          value={offerForm.originalPrice}
+          onChange={e => setOfferForm({
+            ...offerForm,
+            originalPrice: e.target.value
+          })}
+        />
+
+        <label>Prix réduit (DT) *</label>
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          required
+          value={offerForm.discountedPrice}
+          onChange={e => setOfferForm({
+            ...offerForm,
+            discountedPrice: e.target.value
+          })}
+        />
+
+        <label>Quantité disponible *</label>
+        <input
+          type="number"
+          min="1"
+          step="1"
+          required
+          value={offerForm.quantity}
+          onChange={e => setOfferForm({
+            ...offerForm,
+            quantity: e.target.value
+          })}
+        />
+
+        <label>URL de l'image</label>
+        <input
+          type="url"
+          value={offerForm.imageUrl}
+          onChange={e => setOfferForm({
+            ...offerForm,
+            imageUrl: e.target.value
+          })}
+          placeholder="https://..."
+        />
+
+        <label>Début du retrait</label>
+        <input
+          type="datetime-local"
+          value={offerForm.pickupStart}
+          onChange={e => setOfferForm({
+            ...offerForm,
+            pickupStart: e.target.value
+          })}
+        />
+
+        <label>Fin du retrait</label>
+        <input
+          type="datetime-local"
+          value={offerForm.pickupEnd}
+          onChange={e => setOfferForm({
+            ...offerForm,
+            pickupEnd: e.target.value
+          })}
+        />
+
+        <label>Adresse</label>
+        <input
+          type="text"
+          value={offerForm.address}
+          onChange={e => setOfferForm({
+            ...offerForm,
+            address: e.target.value
+          })}
+          placeholder="Adresse de récupération"
+        />
+
+        <button
+          type="submit"
+          className="confirm-reservation"
+          disabled={offerSubmitting}
+        >
+          {offerSubmitting
+            ? 'Enregistrement...'
+            : editingOfferId
+              ? 'Enregistrer les modifications'
+              : 'Publier mon offre'}
+        </button>
+
+        <button
+          type="button"
+          className="login-btn"
+          onClick={resetOfferForm}
+        >
+          Annuler
+        </button>
+      </form>
+    )}
+
+    <div className="section-heading">
+      <h2>Offres publiées</h2>
+    </div>
+
+    {offersLoading ? (
+      <p>Chargement de vos offres...</p>
+    ) : merchantOffers.length === 0 ? (
+      <p>Vous n'avez pas encore publié d'offre.</p>
+    ) : (
+      <div className="reservations-list">
+        {merchantOffers.map(offer => (
+          <div className="reservation-card" key={offer.id}>
+            {offer.imageUrl && (
+              <img
+                src={offer.imageUrl}
+                alt={offer.title}
+                style={{
+                  width: '100%',
+                  maxWidth: '220px',
+                  borderRadius: '10px',
+                  objectFit: 'cover'
+                }}
+              />
+            )}
+
+         <h3>{offer.title || offer.name}</h3>
+            <p>{offer.description}</p>
+            <p>Catégorie : {offer.category}</p>
+            <p>
+              Prix initial : {offer.originalPrice} DT
+            </p>
+            <p>
+              Prix réduit : <strong>{offer.discountedPrice} DT</strong>
+            </p>
+            <p>Quantité : {offer.quantity}</p>
+            <p>Adresse : {offer.address || 'Non renseignée'}</p>
+            <p>Statut : {offer.status}</p>
+
+            <div className="admin-merchant-actions">
+              <button
+                className="confirm-reservation"
+                onClick={() => handleEditOffer(offer)}
+              >
+                Modifier
+              </button>
+
+              <button
+                className="login-btn"
+                onClick={() => handleDeleteOffer(offer.id)}
+              >
+                Supprimer
+              </button>
             </div>
-
-            <div className="dashboard-card">
-              <span>📋</span>
-              <h3>Réservations reçues</h3>
-              <p>Consultez les réservations effectuées par les étudiants.</p>
-              <strong>Fonctionnalité à connecter</strong>
-            </div>
-
-            <div className="dashboard-card">
-              <span>📊</span>
-              <h3>Statistiques</h3>
-              <p>Suivez vos ventes et les repas sauvés.</p>
-              <strong>Fonctionnalité à connecter</strong>
-            </div>
           </div>
+        ))}
+      </div>
+    )}
+  </section>
+</main>
 
-          <div className="dashboard-notice">
-            Votre compte commerçant est actif. Les outils de gestion
-            seront disponibles après la connexion des API.
-          </div>
-        </main>
       </div>
     )
   }
@@ -546,13 +1023,16 @@ function App() {
               </strong>
             </div>
 
-            <div className="dashboard-card">
-              <span>🍽️</span>
-              <h3>Offres alimentaires</h3>
-              <p>Consultez et contrôlez les offres de la plateforme.</p>
-              <strong>Fonctionnalité à connecter</strong>
-            </div>
-
+           <div className="dashboard-card">
+  <span>🍽️</span>
+  <h3>Offres alimentaires</h3>
+  <p>Consultez et contrôlez les offres de la plateforme.</p>
+  <strong>
+    {platformOffersLoading
+      ? 'Chargement...'
+      : `${platformOffers.length} offre(s) publiée(s)`}
+  </strong>
+</div>
             <div className="dashboard-card">
               <span>📊</span>
               <h3>Statistiques générales</h3>
@@ -561,7 +1041,92 @@ function App() {
             </div>
           </div>
 
+          
+          {/* Gestion des offres de la plateforme */}
+          <section className="admin-merchants-section">
+            <div className="section-heading">
+              <span>GESTION DES OFFRES</span>
+              <h2>Offres publiées</h2>
+              <p>
+                Consultez les offres et contrôlez les publications des commerçants.
+              </p>
+              <button
+                className="filter-btn"
+                onClick={fetchPlatformOffers}
+                disabled={platformOffersLoading}
+              >
+                {platformOffersLoading ? 'Chargement...' : 'Actualiser les offres'}
+              </button>
+            </div>
+
+            {offerError && (
+              <p className="error-message">{offerError}</p>
+            )}
+
+            {offerMessage && (
+              <p className="success-message">{offerMessage}</p>
+            )}
+
+            {platformOffersLoading ? (
+              <p>Chargement des offres...</p>
+            ) : platformOffers.length === 0 ? (
+              <p>Aucune offre publiée pour le moment.</p>
+            ) : (
+              <div className="reservations-list">
+                {platformOffers.map(offer => {
+                const merchant = allUsers.find(
+  user => user.uid === (offer.merchantId || offer.ownerId)
+)
+
+                  return (
+                    <div className="reservation-card" key={offer.id}>
+                      <div>
+                        <h3>{offer.title}</h3>
+                        <p>{offer.description}</p>
+                        <p>
+                          <strong>Catégorie :</strong> {offer.category}
+                        </p>
+                        <p>
+                          <strong>Commerçant :</strong>{' '}
+                         {merchant?.fullName || merchant?.name || offer.shopName || 'Commerçant'}
+                        </p>
+                        <p>
+                          <strong>Email :</strong>{' '}
+                          {merchant?.email || 'Non disponible'}
+                        </p>
+                        <p>
+  <strong>Prix initial :</strong>{' '}
+  {Number(offer.originalPrice ?? 0).toFixed(3)} DT
+</p>
+
+<p>
+  <strong>Prix réduit :</strong>{' '}
+  {Number(offer.discountedPrice ?? offer.discountPrice ?? 0).toFixed(3)} DT
+</p>
+                        <p>
+                          <strong>Quantité :</strong> {offer.quantity ?? offer.availableQuantity ?? 0}
+                        </p>
+                        <p>
+                          <strong>Adresse :</strong>{' '}
+                          {offer.address || 'Non renseignée'}
+                        </p>
+                      </div>
+
+                      <button
+                        className="cancel-reservation-btn"
+                        onClick={() => handleDeleteOffer(offer.id)}
+                      >
+                        Supprimer l'offre
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </section>
+
           {/* Gestion des commerçants */}
+
           <section className="admin-merchants-section">
             <div className="section-heading">
               <span>GESTION DES COMMERÇANTS</span>
@@ -825,21 +1390,24 @@ function App() {
           </p>
         </div>
 
-        <div className="category-filters">
-          {['Tous', 'Sandwichs', 'Pizzas', 'Salades'].map(category => (
-            <button
-              key={category}
-              className={
-                activeCategory === category
-                  ? 'filter-btn active'
-                  : 'filter-btn'
-              }
-              onClick={() => setActiveCategory(category)}
-            >
-              {category}
-            </button>
-          ))}
-        </div>
+       <div className="category-filters">
+  {[
+    'Tous',
+    ...new Set(displayedOffers.map(offer => offer.category).filter(Boolean))
+  ].map(category => (
+    <button
+      key={category}
+      className={
+        activeCategory === category
+          ? 'filter-btn active'
+          : 'filter-btn'
+      }
+      onClick={() => setActiveCategory(category)}
+    >
+      {category}
+    </button>
+  ))}
+</div>
 
         <p className="offers-count">
           <strong>{filteredOffers.length}</strong>{' '}

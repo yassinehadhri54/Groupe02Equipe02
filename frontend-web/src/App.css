@@ -1455,3 +1455,74 @@ a:focus-visible {
   flex-wrap: wrap;
 }
  
+/* FORMULAIRE DE GESTION DES OFFRES COMMERÇANT */
+.merchant-offer-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 850px;
+  margin: 30px auto;
+  padding: 30px;
+  background: #fffaf2;
+  border: 1px solid #eadfce;
+  border-radius: 16px;
+  text-align: left;
+}
+
+.merchant-offer-form h3 {
+  color: #990000;
+  font-size: 24px;
+  margin-bottom: 12px;
+}
+
+.merchant-offer-form label {
+  display: block;
+  margin-top: 8px;
+  color: #4a3028;
+  font-weight: 600;
+}
+
+.merchant-offer-form input,
+.merchant-offer-form textarea,
+.merchant-offer-form select {
+  display: block;
+  width: 100%;
+  min-height: 45px;
+  padding: 12px 14px;
+  border: 1px solid #d8c9b8;
+  border-radius: 8px;
+  background: white;
+  color: #333;
+  font-size: 15px;
+  box-sizing: border-box;
+}
+
+.merchant-offer-form textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+.merchant-offer-form input:focus,
+.merchant-offer-form textarea:focus,
+.merchant-offer-form select:focus {
+  outline: none;
+  border-color: #990000;
+  box-shadow: 0 0 0 3px rgba(153, 0, 0, 0.1);
+}
+
+.merchant-offer-form button {
+  width: 100%;
+  margin-top: 10px;
+  min-height: 48px;
+}
+
+.merchant-offer-form button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 600px) {
+  .merchant-offer-form {
+    padding: 18px;
+  }
+}

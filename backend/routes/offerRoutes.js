@@ -12,6 +12,7 @@ const {
 
 const { verifyToken } = require("../middlewares/authMiddleware");
 const { verifyRole } = require("../middlewares/roleMiddleware");
+const { verifyActiveMerchant } = require("../middlewares/activeMerchantMiddleware");
 
 // Consulter toutes les offres : utilisateurs connectés
 router.get(
@@ -20,35 +21,39 @@ router.get(
     getAllOffersController
 );
 
-// Consulter ses propres offres : commerçant actif
+// Consulter ses offres : commerçant approuvé
 router.get(
     "/my",
     verifyToken,
-    verifyRole("merchant"),
+    verifyActiveMerchant,
     getMyOffersController
 );
 
-// Publier une offre : commerçant actif
+// Publier une offre : commerçant approuvé
 router.post(
     "/",
     verifyToken,
-    verifyRole("merchant"),
+    verifyActiveMerchant,
     createOfferController
 );
 
-// Modifier une offre : propriétaire commerçant
+// Modifier une offre : commerçant approuvé
 router.put(
     "/:id",
     verifyToken,
-    verifyRole("merchant"),
+    verifyActiveMerchant,
     updateOfferController
 );
 
-// Supprimer une offre : commerçant propriétaire ou administrateur
+// Supprimer une offre : commerçant approuvé ou administrateur
 router.delete(
     "/:id",
     verifyToken,
     verifyRole("merchant", "admin"),
+    (req, res, next) => {
+        if (req.user.role === "admin") return next();
+        return verifyActiveMerchant(req, res, next);
+    },
     deleteOfferController
 );
 
