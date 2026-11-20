@@ -1,15 +1,51 @@
 
 const reservationService = require("../services/reservationService");
 
+// Business errors thrown by the service are plain Errors with a message.
+// Technical errors (Firestore errors carry a "code", programming errors are
+// TypeError/ReferenceError) are reported as 500 without leaking details.
+const sendError = (res, error, fallbackMessage) => {
+    const isTechnical =
+        error.code !== undefined ||
+        error instanceof TypeError ||
+        error instanceof ReferenceError ||
+        error instanceof RangeError;
+
+    if (isTechnical) {
+        return res.status(500).json({
+            success: false,
+            message: fallbackMessage
+        });
+    }
+
+    const message = error.message || fallbackMessage;
+    let status = 400;
+
+    if (message.includes("not found")) status = 404;
+    else if (message.includes("not allowed")) status = 403;
+
+    return res.status(status).json({
+        success: false,
+        message
+    });
+};
+
 // Create reservation - Student
 const createReservation = async (req, res) => {
     try {
-        const { offerId, quantity } = req.body;
+        const { offerId, quantity } = req.body || {};
 
         if (!offerId || quantity === undefined) {
             return res.status(400).json({
                 success: false,
                 message: "Offer ID and quantity are required."
+            });
+        }
+
+        if (typeof offerId !== "string" || offerId.includes("/")) {
+            return res.status(400).json({
+                success: false,
+                message: "A valid offer ID is required."
             });
         }
 
@@ -27,21 +63,7 @@ const createReservation = async (req, res) => {
 
     } catch (error) {
         console.error("Create reservation error:", error);
-
-        const messages = [
-            "Offer not found.",
-            "This offer is not available.",
-            "Not enough quantity available.",
-            "Quantity must be a positive integer.",
-            "A valid offer ID is required.",
-            "Invalid offer price.",
-            "Offer information is incomplete."
-        ];
-
-        return res.status(messages.includes(error.message) ? 400 : 500).json({
-            success: false,
-            message: error.message || "Failed to create reservation."
-        });
+        return sendError(res, error, "Failed to create reservation.");
     }
 };
 
@@ -61,11 +83,7 @@ const getMyReservations = async (req, res) => {
 
     } catch (error) {
         console.error("Get student reservations error:", error);
-
-        return res.status(500).json({
-            success: false,
-            message: "Failed to retrieve reservations."
-        });
+        return sendError(res, error, "Failed to retrieve reservations.");
     }
 };
 
@@ -85,16 +103,13 @@ const getMerchantReservations = async (req, res) => {
 
     } catch (error) {
         console.error("Get merchant reservations error:", error);
-
-        return res.status(500).json({
-            success: false,
-            message: "Failed to retrieve merchant reservations."
-        });
+        return sendError(res, error, "Failed to retrieve merchant reservations.");
     }
 };
 
 
-// Confirm, reject or complete reservation - Merchant
+// Confirm or reject reservation - Merchant
+// (completion only happens through QR verification)
 const updateReservationStatus = async (req, res) => {
     try {
         const { status } = req.body || {};
@@ -120,43 +135,18 @@ const updateReservationStatus = async (req, res) => {
 
     } catch (error) {
         console.error("Update reservation error:", error);
-
-        const messages = [
-            "Invalid reservation status.",
-            "Reservation not found.",
-            "Shop not found.",
-            "You are not allowed to update this reservation.",
-            "Only pending reservations can be confirmed.",
-            "Only pending reservations can be rejected.",
-            "Only confirmed reservations can be completed.",
-            "Reservation must be paid before confirmation.",
-            "Reservation must be paid before completion.",
-            "Cannot reject a reservation while payment is in progress or paid.",
-            "Offer not found."
-        ];
-
-        const statusCode = error.message === "Reservation not found."
-            ? 404
-            : messages.includes(error.message) ? 400 : 500;
-
-        return res.status(statusCode).json({
-            success: false,
-            message: error.message || "Failed to update reservation."
-        });
+        return sendError(res, error, "Failed to update reservation.");
     }
 };
-
 
 
 // Cancel reservation - Student
 const cancelReservation = async (req, res) => {
     try {
-        
-const result = await reservationService.cancelReservation(
-    req.user.uid,
-    req.params.id
-);
-
+        const result = await reservationService.cancelReservation(
+            req.user.uid,
+            req.params.id
+        );
 
         return res.status(200).json({
             success: true,
@@ -166,22 +156,7 @@ const result = await reservationService.cancelReservation(
 
     } catch (error) {
         console.error("Cancel reservation error:", error);
-
-        const messages = [
-            "You are not allowed to cancel this reservation.",
-            "Only pending reservations can be cancelled.",
-            "Offer not found.",
-            "Invalid offer quantity."
-        ];
-
-        const statusCode = error.message === "Reservation not found."
-            ? 404
-            : messages.includes(error.message) ? 400 : 500;
-
-        return res.status(statusCode).json({
-            success: false,
-            message: error.message || "Failed to cancel reservation."
-        });
+        return sendError(res, error, "Failed to cancel reservation.");
     }
 };
 
@@ -201,22 +176,7 @@ const generateReservationQR = async (req, res) => {
         });
     } catch (error) {
         console.error("Generate QR error:", error);
-
-        const messages = [
-            "Reservation not found.",
-            "You are not allowed to access this reservation.",
-            "Reservation must be paid before generating QR Code.",
-            "QR Code cannot be generated for this reservation."
-        ];
-
-        const statusCode = error.message === "Reservation not found."
-            ? 404
-            : messages.includes(error.message) ? 400 : 500;
-
-        return res.status(statusCode).json({
-            success: false,
-            message: error.message || "Failed to generate QR Code."
-        });
+        return sendError(res, error, "Failed to generate QR Code.");
     }
 };
 
@@ -245,26 +205,7 @@ const verifyReservationQR = async (req, res) => {
         });
     } catch (error) {
         console.error("Verify QR error:", error);
-
-        const messages = [
-            "Invalid QR Code.",
-            "Invalid or expired QR Code.",
-            "Reservation not found.",
-            "QR Code has already been used.",
-            "Reservation is not paid.",
-            "Only confirmed reservations can be completed.",
-            "Shop not found.",
-            "You are not allowed to verify this reservation."
-        ];
-
-        const statusCode = error.message === "Reservation not found."
-            ? 404
-            : messages.includes(error.message) ? 400 : 500;
-
-        return res.status(statusCode).json({
-            success: false,
-            message: error.message || "Failed to verify QR Code."
-        });
+        return sendError(res, error, "Failed to verify QR Code.");
     }
 };
 
@@ -275,5 +216,5 @@ module.exports = {
     updateReservationStatus,
     cancelReservation,
     generateReservationQR,
-verifyReservationQR
+    verifyReservationQR
 };

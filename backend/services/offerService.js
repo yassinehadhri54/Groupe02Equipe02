@@ -6,6 +6,11 @@ const {
     getOfferOwnerId,
     normalizeOffer
 } = require("../utils/offerFields");
+const {
+    isHttpUrl,
+    isNonEmptyText,
+    validatePickupWindow
+} = require("../utils/validation");
 
 const offersCollection = db.collection("offers");
 const shopsCollection = db.collection("shops");
@@ -30,6 +35,16 @@ const getApprovedShop = async (uid) => {
 
 // Créer une offre
 const createOffer = async (uid, offerData) => {
+    if (!isNonEmptyText(offerData.name) || !isNonEmptyText(offerData.category)) {
+        throw new Error("Name and category must be non-empty texts of at most 100 characters.");
+    }
+
+    validatePickupWindow(offerData.pickupStart, offerData.pickupEnd);
+
+    if (offerData.imageURL && !isHttpUrl(offerData.imageURL)) {
+        throw new Error("imageURL must be a valid http(s) URL.");
+    }
+
     const shop = await getApprovedShop(uid);
 
     const offerRef = offersCollection.doc();
@@ -218,18 +233,47 @@ const updateOffer = async (uid, offerId, updateData) => {
         throw new Error("No valid fields provided for update.");
     }
 
-    const current = normalizeOffer(offerDoc.id, offerDoc.data());
+    const rawCurrent = offerDoc.data();
+    const current = normalizeOffer(offerDoc.id, rawCurrent);
 
-    if (cleanData.originalPrice !== undefined) {
-        cleanData.originalPrice = Number(cleanData.originalPrice);
+    for (const field of ["name", "category"]) {
+        if (cleanData[field] !== undefined && !isNonEmptyText(cleanData[field])) {
+            throw new Error(`${field} must be a non-empty text of at most 100 characters.`);
+        }
     }
 
-    if (cleanData.discountPrice !== undefined) {
-        cleanData.discountPrice = Number(cleanData.discountPrice);
+    if (
+        cleanData.imageURL !== undefined &&
+        cleanData.imageURL !== "" &&
+        !isHttpUrl(cleanData.imageURL)
+    ) {
+        throw new Error("imageURL must be a valid http(s) URL.");
+    }
+
+    if (cleanData.pickupStart !== undefined || cleanData.pickupEnd !== undefined) {
+        validatePickupWindow(
+            cleanData.pickupStart ?? current.pickupStart,
+            cleanData.pickupEnd ?? current.pickupEnd
+        );
+    }
+
+    for (const field of ["originalPrice", "discountPrice"]) {
+        if (cleanData[field] !== undefined) {
+            cleanData[field] = Number(cleanData[field]);
+
+            if (!Number.isFinite(cleanData[field])) {
+                throw new Error("Prices must be valid numbers.");
+            }
+        }
     }
 
     if (cleanData.quantity !== undefined) {
         const newQuantity = Number(cleanData.quantity);
+
+        if (!Number.isInteger(newQuantity) || newQuantity <= 0) {
+            throw new Error("Quantity must be a positive integer.");
+        }
+
         const alreadyReserved =
             current.quantity - current.availableQuantity;
 
@@ -257,6 +301,16 @@ const updateOffer = async (uid, offerId, updateData) => {
         throw new Error(
             "Discount price must be positive and lower than original price."
         );
+    }
+
+    // Offers created by another client use other field names: keep those
+    // in sync too, so every client sees the same values.
+    const legacyFields = { name: "title", discountPrice: "discountedPrice", imageURL: "imageUrl" };
+
+    for (const [field, legacyField] of Object.entries(legacyFields)) {
+        if (cleanData[field] !== undefined && rawCurrent[legacyField] !== undefined) {
+            cleanData[legacyField] = cleanData[field];
+        }
     }
 
     cleanData.updatedAt = FieldValue.serverTimestamp();

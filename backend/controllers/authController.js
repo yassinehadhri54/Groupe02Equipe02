@@ -9,7 +9,7 @@ const {
 // Register
 const register = async (req, res) => {
     try {
-        const { fullName, email, password, role } = req.body;
+        const { fullName, email, password, role } = req.body || {};
 
         if (!fullName || !email || !password || !role) {
             return res.status(400).json({
@@ -84,7 +84,7 @@ const register = async (req, res) => {
 // Login
 const login = async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { email, password } = req.body || {};
 
         if (!email || !password) {
             return res.status(400).json({

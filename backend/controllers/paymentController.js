@@ -43,7 +43,7 @@ const initiatePayment = async (req, res) => {
         }
 
         const studentId = getUserId(req);
-        const { reservationId } = req.body;
+        const { reservationId } = req.body || {};
 
         if (!reservationId) {
             return res.status(400).json({

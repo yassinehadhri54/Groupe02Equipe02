@@ -32,7 +32,7 @@ const updateMyProfile = async (req, res) => {
     try {
         const uid = req.user.uid || req.user.sub;
 
-        const user = await updateUserProfile(uid, req.body);
+        const user = await updateUserProfile(uid, req.body || {});
 
         return res.status(200).json({
             success: true,

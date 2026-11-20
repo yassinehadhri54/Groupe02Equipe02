@@ -3,7 +3,10 @@ const { db } = require("../config/firebase");
 const { FieldValue } = require("firebase-admin/firestore");
 const crypto = require("crypto");
 const QRCode = require("qrcode");
-const { getOfferDiscountPrice } = require("../utils/offerFields");
+const {
+    getOfferDiscountPrice,
+    LISTED_OFFER_STATUSES
+} = require("../utils/offerFields");
 const notificationService = require("./notificationService");
 
 const reservationsCollection = db.collection("reservations");
@@ -33,6 +36,11 @@ const createReservation = async (studentId, offerId, quantity) => {
         }
 
         const offer = offerSnapshot.data();
+
+        if (!LISTED_OFFER_STATUSES.includes(offer.status)) {
+            throw new Error("This offer is not available.");
+        }
+
         const availableQuantity = Number(offer.availableQuantity);
 
         if (
@@ -64,6 +72,11 @@ const createReservation = async (studentId, offerId, quantity) => {
         }
 
         const shop = shopSnapshot.data();
+
+        // Offers of pending, rejected or suspended shops cannot be reserved.
+        if (shop.status !== "approved") {
+            throw new Error("This offer is not available.");
+        }
 
         const totalPrice = Number(
             (unitPrice * requestedQuantity).toFixed(3)

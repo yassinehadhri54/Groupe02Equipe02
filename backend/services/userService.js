@@ -1,5 +1,13 @@
 
-const { db } = require("../config/firebase");
+const { db, auth } = require("../config/firebase");
+const { FieldValue } = require("firebase-admin/firestore");
+const { isHttpUrl } = require("../utils/validation");
+
+const httpError = (statusCode, message) => {
+    const error = new Error(message);
+    error.statusCode = statusCode;
+    return error;
+};
 
 // Device tokens (FCM) are never returned by the API.
 const toPublicUser = (doc) => {
@@ -13,41 +21,84 @@ const toPublicUser = (doc) => {
 
 // Get user profile from Firestore
 const getUserById = async (uid) => {
+    if (typeof uid !== "string" || uid.trim() === "" || uid.includes("/")) {
+        throw httpError(400, "Invalid user ID.");
+    }
+
     const userRef = db.collection("users").doc(uid);
     const userDoc = await userRef.get();
 
     if (!userDoc.exists) {
-        throw new Error("User not found.");
+        throw httpError(404, "User not found.");
     }
 
     return toPublicUser(userDoc);
 };
 
+// Validate and clean the fields a user may change on their own profile.
+// role, status, uid and email can never be changed here.
+const validateProfileUpdate = (updateData = {}) => {
+    const cleanData = {};
+
+    // "name" is accepted for older clients; the stored field is "fullName".
+    const fullName = updateData.fullName ?? updateData.name;
+
+    if (fullName !== undefined) {
+        if (typeof fullName !== "string" || fullName.trim().length < 2 || fullName.trim().length > 100) {
+            throw httpError(400, "Full name must contain between 2 and 100 characters.");
+        }
+        cleanData.fullName = fullName.trim();
+    }
+
+    if (updateData.phone !== undefined) {
+        const phone = String(updateData.phone).replace(/\s+/g, "");
+
+        if (!/^\+?[0-9]{8,15}$/.test(phone)) {
+            throw httpError(400, "Phone number must contain 8 to 15 digits (optional leading +).");
+        }
+        cleanData.phone = phone;
+    }
+
+    if (updateData.photoURL !== undefined) {
+        const photoURL = updateData.photoURL;
+
+        if (photoURL !== "" && !isHttpUrl(photoURL)) {
+            throw httpError(400, "photoURL must be a valid http(s) URL.");
+        }
+        cleanData.photoURL = photoURL;
+    }
+
+    if (Object.keys(cleanData).length === 0) {
+        throw httpError(400, "No valid fields provided for update. Allowed: fullName, phone, photoURL.");
+    }
+
+    return cleanData;
+};
+
 // Update user profile
 const updateUserProfile = async (uid, updateData) => {
-    const allowedFields = ["name", "phone", "photoURL"];
-    const filteredData = {};
-
-    for (const field of allowedFields) {
-        if (updateData[field] !== undefined) {
-            filteredData[field] = updateData[field];
-        }
-    }
-
-    if (Object.keys(filteredData).length === 0) {
-        throw new Error("No valid fields provided for update.");
-    }
-
-    filteredData.updatedAt = new Date();
+    const cleanData = validateProfileUpdate(updateData || {});
 
     const userRef = db.collection("users").doc(uid);
     const userDoc = await userRef.get();
 
     if (!userDoc.exists) {
-        throw new Error("User not found.");
+        throw httpError(404, "User not found.");
     }
 
-    await userRef.update(filteredData);
+    await userRef.update({
+        ...cleanData,
+        updatedAt: FieldValue.serverTimestamp()
+    });
+
+    // Keep the Firebase Auth display name in sync (non-blocking on failure).
+    if (cleanData.fullName) {
+        try {
+            await auth.updateUser(uid, { displayName: cleanData.fullName });
+        } catch (error) {
+            console.error("Auth displayName update error:", error.message);
+        }
+    }
 
     return await getUserById(uid);
 };
