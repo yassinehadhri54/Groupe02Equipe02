@@ -3,6 +3,7 @@ const axios = require("axios");
 const { db } = require("../config/firebase");
 const { FieldValue, Timestamp } = require("firebase-admin/firestore");
 const konnectConfig = require("../config/konnect");
+const notificationService = require("./notificationService");
 
 const paymentsCollection = db.collection("payments");
 const reservationsCollection = db.collection("reservations");
@@ -43,6 +44,32 @@ const getKonnectClient = () => {
 // --------------------------------------------------
 // HELPERS
 // --------------------------------------------------
+
+// Sent once, only when this call moved the payment to "paid".
+// Not awaited and never throws: notifications must not affect payments.
+const notifyPaymentConfirmed = (payment) => {
+    void (async () => {
+        const snapshot = await reservationsCollection.doc(payment.reservationId).get();
+        const reservation = snapshot.exists ? snapshot.data() : {};
+        const label = `${reservation.quantity || ""} × ${reservation.offerName || "offre"}`.trim();
+
+        await notificationService.notifyUser(payment.studentId, {
+            type: "payment_confirmed",
+            title: "Paiement confirmé",
+            body: `Paiement de ${payment.amount} TND reçu pour ${label}. En attente de confirmation du commerçant.`,
+            data: { reservationId: payment.reservationId }
+        });
+
+        if (reservation.shopId) {
+            await notificationService.notifyShopOwner(reservation.shopId, {
+                type: "reservation_paid",
+                title: "Réservation payée",
+                body: `${label} a été payée (${payment.amount} TND). Vous pouvez la confirmer.`,
+                data: { reservationId: payment.reservationId }
+            });
+        }
+    })().catch((error) => console.error("Payment notification error:", error.message));
+};
 
 // Expiration time in milliseconds: Konnect's expirationDate when available,
 // otherwise the expiresAt stored when the payment was initiated.
@@ -212,7 +239,7 @@ const syncKonnectPayment = async (paymentId) => {
         payment.reservationId
     );
 
-    await db.runTransaction(async (transaction) => {
+    const justPaid = await db.runTransaction(async (transaction) => {
         const freshPaymentSnapshot = await transaction.get(paymentDocument);
         const reservationSnapshot = await transaction.get(reservationDocument);
 
@@ -225,7 +252,7 @@ const syncKonnectPayment = async (paymentId) => {
 
         // Idempotency: repeated verification does not duplicate changes
         if (freshPayment.status === "paid") {
-            return;
+            return false;
         }
 
         if (freshPayment.status !== "pending") {
@@ -253,7 +280,13 @@ const syncKonnectPayment = async (paymentId) => {
             paymentStatus: "paid",
             updatedAt: FieldValue.serverTimestamp()
         });
+
+        return true;
     });
+
+    if (justPaid) {
+        notifyPaymentConfirmed(payment);
+    }
 
     return {
         paymentId,
@@ -660,7 +693,7 @@ const confirmMockPayment = async (studentId, paymentId) => {
         payment.reservationId
     );
 
-    await db.runTransaction(async (transaction) => {
+    const justPaid = await db.runTransaction(async (transaction) => {
         const freshPaymentSnapshot = await transaction.get(paymentDocument);
         const reservationSnapshot = await transaction.get(reservationDocument);
 
@@ -673,7 +706,7 @@ const confirmMockPayment = async (studentId, paymentId) => {
 
         // Do not process an already-paid payment again
         if (freshPayment.status === "paid") {
-            return;
+            return false;
         }
 
         if (freshPayment.status !== "pending") {
@@ -701,7 +734,13 @@ const confirmMockPayment = async (studentId, paymentId) => {
             paymentStatus: "paid",
             updatedAt: FieldValue.serverTimestamp()
         });
+
+        return true;
     });
+
+    if (justPaid) {
+        notifyPaymentConfirmed(payment);
+    }
 
     return {
         paymentId,

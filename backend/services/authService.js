@@ -84,7 +84,10 @@ const getUserProfile = async (uid) => {
         return null;
     }
 
-    return userDoc.data();
+    // Device tokens (FCM) are never returned by the API.
+    const { fcmTokens, ...profile } = userDoc.data();
+
+    return profile;
 };
 
 module.exports = {
