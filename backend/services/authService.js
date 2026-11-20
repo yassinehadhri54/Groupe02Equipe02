@@ -2,6 +2,7 @@
 const axios = require("axios");
 const { auth, db } = require("../config/firebase");
 const { FieldValue } = require("firebase-admin/firestore");
+const { removeToken } = require("./notificationService");
 
 // Register
 const registerUser = async ({ fullName, email, password, role }) => {
@@ -90,8 +91,32 @@ const getUserProfile = async (uid) => {
     return profile;
 };
 
+// Logout
+// Firebase ID tokens are stateless, so logout really invalidates the session by
+// revoking the user's refresh tokens. verifyToken checks revocation, so ID tokens
+// issued before this moment are refused. This signs the user out on ALL devices.
+// The client must also delete its stored tokens.
+const logoutUser = async (uid, fcmToken) => {
+    // Stop push notifications on this device (optional).
+    if (fcmToken) {
+        try {
+            await removeToken(uid, fcmToken);
+        } catch (error) {
+            console.error("Logout FCM token removal error:", error.message);
+        }
+    }
+
+    await auth.revokeRefreshTokens(uid);
+
+    return {
+        uid,
+        revokedAt: new Date().toISOString()
+    };
+};
+
 module.exports = {
     registerUser,
     loginUser,
-    getUserProfile
+    getUserProfile,
+    logoutUser
 };

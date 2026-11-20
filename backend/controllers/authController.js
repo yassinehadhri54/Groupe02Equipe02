@@ -1,10 +1,9 @@
 
-const axios = require("axios");
-
 const {
     registerUser,
     loginUser,
-    getUserProfile
+    getUserProfile,
+    logoutUser
 } = require("../services/authService");
 
 // Register
@@ -169,13 +168,30 @@ const getMe = async (req, res) => {
     }
 };
 
+// Logout - POST /api/auth/logout   body (optional): { "fcmToken": "..." }
+const logout = async (req, res) => {
+    try {
+        const result = await logoutUser(req.user.uid, req.body?.fcmToken);
+
+        return res.status(200).json({
+            success: true,
+            message: "Logged out successfully. Sessions on all devices have been revoked.",
+            data: result
+        });
+
+    } catch (error) {
+        console.error("Logout error:", error.message);
+
+        return res.status(500).json({
+            success: false,
+            message: "Logout failed."
+        });
+    }
+};
+
 module.exports = {
     register,
     login,
-    getMe
+    getMe,
+    logout
 };
-console.log("Controller exports:", {
-    register: typeof register,
-    login: typeof login,
-    getMe: typeof getMe
-});
