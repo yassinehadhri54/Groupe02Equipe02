@@ -1,6 +1,16 @@
 
 const { db } = require("../config/firebase");
 
+// Device tokens (FCM) are never returned by the API.
+const toPublicUser = (doc) => {
+    const { fcmTokens, ...data } = doc.data();
+
+    return {
+        uid: doc.id,
+        ...data
+    };
+};
+
 // Get user profile from Firestore
 const getUserById = async (uid) => {
     const userRef = db.collection("users").doc(uid);
@@ -10,10 +20,7 @@ const getUserById = async (uid) => {
         throw new Error("User not found.");
     }
 
-    return {
-        uid: userDoc.id,
-        ...userDoc.data()
-    };
+    return toPublicUser(userDoc);
 };
 
 // Update user profile
@@ -49,10 +56,7 @@ const updateUserProfile = async (uid, updateData) => {
 const getAllUsers = async () => {
     const usersSnapshot = await db.collection("users").get();
 
-    return usersSnapshot.docs.map(doc => ({
-        uid: doc.id,
-        ...doc.data()
-    }));
+    return usersSnapshot.docs.map(toPublicUser);
 };
 
 module.exports = {

@@ -4,6 +4,7 @@ const { FieldValue } = require("firebase-admin/firestore");
 const crypto = require("crypto");
 const QRCode = require("qrcode");
 const { getOfferDiscountPrice } = require("../utils/offerFields");
+const notificationService = require("./notificationService");
 
 const reservationsCollection = db.collection("reservations");
 const offersCollection = db.collection("offers");
@@ -495,12 +496,86 @@ const cancelReservation = async (studentId, reservationId) => {
 };
 
 
+// --------------------------------------------------
+// NOTIFICATIONS
+// Sent once, after the operation succeeded (never inside a transaction,
+// which Firestore may retry). Failures are logged and never break the
+// reservation flow. Not awaited, so responses are not delayed.
+// --------------------------------------------------
+
+const describe = (reservation) =>
+    `${reservation.quantity} × ${reservation.offerName || "offre"}`;
+
+const withCreatedNotification = async (...args) => {
+    const reservation = await createReservation(...args);
+
+    void notificationService.notifyShopOwner(reservation.shopId, {
+        type: "reservation_created",
+        title: "Nouvelle réservation",
+        body: `${describe(reservation)} — ${reservation.totalPrice} TND`,
+        data: { reservationId: reservation.reservationId }
+    });
+
+    return reservation;
+};
+
+const withStatusNotification = async (...args) => {
+    const reservation = await updateReservationStatus(...args);
+
+    const confirmed = reservation.status === "confirmed";
+
+    void notificationService.notifyUser(reservation.studentId, {
+        type: confirmed ? "reservation_confirmed" : "reservation_rejected",
+        title: confirmed ? "Réservation confirmée" : "Réservation refusée",
+        body: confirmed
+            ? `${describe(reservation)} chez ${reservation.shopName} est confirmée. Présentez votre QR code au retrait.`
+            : `${describe(reservation)} chez ${reservation.shopName} a été refusée.`,
+        data: { reservationId: reservation.reservationId }
+    });
+
+    return reservation;
+};
+
+const withCancelNotification = async (...args) => {
+    const reservation = await cancelReservation(...args);
+
+    void notificationService.notifyShopOwner(reservation.shopId, {
+        type: "reservation_cancelled",
+        title: "Réservation annulée",
+        body: `${describe(reservation)} a été annulée par l'étudiant.`,
+        data: { reservationId: reservation.reservationId }
+    });
+
+    return reservation;
+};
+
+const withPickupNotification = async (...args) => {
+    const result = await verifyReservationQR(...args);
+
+    void (async () => {
+        const snapshot = await reservationsCollection.doc(result.reservationId).get();
+
+        if (!snapshot.exists) return;
+
+        const reservation = snapshot.data();
+
+        await notificationService.notifyUser(reservation.studentId, {
+            type: "reservation_completed",
+            title: "Commande récupérée",
+            body: `Merci ! ${describe(reservation)} chez ${reservation.shopName} a bien été récupérée.`,
+            data: { reservationId: result.reservationId }
+        });
+    })().catch((error) => console.error("Pickup notification error:", error.message));
+
+    return result;
+};
+
 module.exports = {
-    createReservation,
+    createReservation: withCreatedNotification,
     getMyReservations,
     getMerchantReservations,
-    updateReservationStatus,
+    updateReservationStatus: withStatusNotification,
     generateReservationQR,
-    verifyReservationQR,
-    cancelReservation
+    verifyReservationQR: withPickupNotification,
+    cancelReservation: withCancelNotification
 };
