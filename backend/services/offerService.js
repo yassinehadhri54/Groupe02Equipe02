@@ -67,9 +67,23 @@ const createOffer = async (uid, offerData) => {
 };
 
 // Récupérer toutes les offres disponibles
+// Case- and accent-insensitive text ("Pâtes" matches "pates").
+const normalizeText = (value) =>
+    String(value ?? "")
+        .normalize("NFD")
+        .replace(/[̀-ͯ]/g, "")
+        .toLowerCase()
+        .trim();
+
+// Public offer listing and search.
 // Filters are applied in memory: the price is stored as "discountPrice"
 // or "discountedPrice" depending on who created the offer, and this
 // also avoids needing composite Firestore indexes.
+//   q        : words searched in product name, description, category and shop name
+//   product  : product name contains
+//   shop     : shop name contains
+//   category : exact category (case-insensitive)
+//   shopId, maxPrice
 const getAllOffers = async (filters = {}) => {
     const snapshot = await offersCollection
         .where("status", "in", LISTED_OFFER_STATUSES)
@@ -77,8 +91,49 @@ const getAllOffers = async (filters = {}) => {
 
     let offers = snapshot.docs.map((doc) => normalizeOffer(doc.id, doc.data()));
 
+    // Only offers of approved shops are public. The shop name is taken
+    // from the shop document (some offers do not store it).
+    const shopIds = [...new Set(offers.map((offer) => offer.shopId).filter(Boolean))];
+    const shopSnapshots = shopIds.length > 0
+        ? await db.getAll(...shopIds.map((id) => shopsCollection.doc(id)))
+        : [];
+    const shops = new Map(
+        shopSnapshots
+            .filter((shop) => shop.exists)
+            .map((shop) => [shop.id, shop.data()])
+    );
+
+    offers = offers
+        .filter((offer) => shops.get(offer.shopId)?.status === "approved")
+        .map((offer) => ({
+            ...offer,
+            shopName: shops.get(offer.shopId).name || offer.shopName || ""
+        }));
+
     if (filters.category) {
-        offers = offers.filter((offer) => offer.category === filters.category);
+        const category = normalizeText(filters.category);
+        offers = offers.filter((offer) => normalizeText(offer.category) === category);
+    }
+
+    if (filters.product) {
+        const product = normalizeText(filters.product);
+        offers = offers.filter((offer) => normalizeText(offer.name).includes(product));
+    }
+
+    if (filters.shop) {
+        const shop = normalizeText(filters.shop);
+        offers = offers.filter((offer) => normalizeText(offer.shopName).includes(shop));
+    }
+
+    if (filters.q) {
+        const words = normalizeText(filters.q).split(/\s+/).filter(Boolean);
+
+        offers = offers.filter((offer) => {
+            const text = normalizeText(
+                [offer.name, offer.description, offer.category, offer.shopName].join(" ")
+            );
+            return words.every((word) => text.includes(word));
+        });
     }
 
     if (filters.shopId) {

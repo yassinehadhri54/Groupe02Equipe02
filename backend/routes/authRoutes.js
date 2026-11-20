@@ -5,12 +5,9 @@ const router = express.Router();
 const {
     register,
     login,
-    getMe
+    getMe,
+    logout
 } = require("../controllers/authController");
-
-console.log("REGISTER:", typeof register);
-console.log("LOGIN:", typeof login);
-console.log("GET ME:", typeof getMe);
 
 const { verifyToken } = require("../middlewares/authMiddleware");
 const { verifyRole } = require("../middlewares/roleMiddleware");
@@ -19,8 +16,9 @@ const { verifyRole } = require("../middlewares/roleMiddleware");
 router.post("/register", register);
 router.post("/login", login);
 
-// Protected route
+// Protected routes
 router.get("/me", verifyToken, getMe);
+router.post("/logout", verifyToken, logout);
 
 // Temporary role testing routes
 router.get("/student-area", verifyToken, verifyRole("student"), (req, res) => {

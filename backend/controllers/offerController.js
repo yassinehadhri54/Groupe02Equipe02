@@ -92,7 +92,21 @@ const createOffer = async (req, res) => {
 // Afficher toutes les offres disponibles
 const getAllOffers = async (req, res) => {
     try {
-        const { category, shopId, maxPrice } = req.query;
+        const { category, shopId, maxPrice, q, product, shop } = req.query;
+
+        // Text filters must be single strings (not repeated params) of reasonable length.
+        const textFilters = { category, shopId, q, product, shop };
+        for (const [name, value] of Object.entries(textFilters)) {
+            if (
+                value !== undefined &&
+                (typeof value !== "string" || value.length > 100)
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    message: `${name} must be a text of at most 100 characters.`
+                });
+            }
+        }
 
         if (
             maxPrice !== undefined &&
@@ -107,7 +121,10 @@ const getAllOffers = async (req, res) => {
         const offers = await offerService.getAllOffers({
             category,
             shopId,
-            maxPrice
+            maxPrice,
+            q,
+            product,
+            shop
         });
 
         return res.status(200).json({
