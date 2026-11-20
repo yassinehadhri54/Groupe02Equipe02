@@ -1,10 +1,22 @@
 
 const shopService = require("../services/shopService");
 
+// 404: shop/owner missing, 409: invalid status transition, 500: technical.
+const getStatusChangeErrorCode = (error) => {
+    if (error.code !== undefined) return 500;
+
+    const message = error.message || "";
+
+    if (message.includes("not found")) return 404;
+    if (message.includes("already") || message.includes("cannot be")) return 409;
+
+    return 500;
+};
+
 // Register a shop
 const registerShop = async (req, res) => {
     try {
-        const { name, address, phone, email, description } = req.body;
+        const { name, address, phone, email, description } = req.body || {};
 
         if (!name || !address || !phone) {
             return res.status(400).json({
@@ -66,7 +78,7 @@ const updateMyShop = async (req, res) => {
     try {
         const shop = await shopService.updateMyShop(
             req.user.uid,
-            req.body
+            req.body || {}
         );
 
         return res.status(200).json({
@@ -124,11 +136,11 @@ const approveShop = async (req, res) => {
     } catch (error) {
         console.error("Approve shop error:", error.message);
 
-        const statusCode = error.message === "Shop not found." ? 404 : 500;
+        const statusCode = getStatusChangeErrorCode(error);
 
         return res.status(statusCode).json({
             success: false,
-            message: error.message
+            message: statusCode === 500 ? "Could not update shop status." : error.message
         });
     }
 };
@@ -147,11 +159,11 @@ const rejectShop = async (req, res) => {
     } catch (error) {
         console.error("Reject shop error:", error.message);
 
-        const statusCode = error.message === "Shop not found." ? 404 : 500;
+        const statusCode = getStatusChangeErrorCode(error);
 
         return res.status(statusCode).json({
             success: false,
-            message: error.message
+            message: statusCode === 500 ? "Could not update shop status." : error.message
         });
     }
 };

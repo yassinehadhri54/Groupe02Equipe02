@@ -14,7 +14,7 @@ const createOffer = async (req, res) => {
             pickupStart,
             pickupEnd,
             imageURL
-        } = req.body;
+        } = req.body || {};
 
         if (
             !name ||
@@ -197,7 +197,7 @@ const updateOffer = async (req, res) => {
         const offer = await offerService.updateOffer(
             req.user.uid,
             req.params.id,
-            req.body
+            req.body || {}
         );
 
         return res.status(200).json({

@@ -140,58 +140,67 @@ const getAllShops = async (status) => {
     }));
 };
 
-// Approve a shop (Admin)
-const approveShop = async (shopId) => {
-    const shopRef = shopsCollection.doc(shopId);
-    const shopDoc = await shopRef.get();
-
-    if (!shopDoc.exists) {
-        throw new Error("Shop not found.");
-    }
-
-    const shopData = shopDoc.data();
-
-    await shopRef.update({
-        status: "approved",
-        updatedAt: FieldValue.serverTimestamp()
-    });
-
-    // Activate the merchant account
-    await usersCollection.doc(shopData.ownerId).update({
-        status: "active"
-    });
-
-    return {
-        shopId,
-        status: "approved"
-    };
+// Change a shop's status and its owner's status together (Admin).
+// A transaction guarantees the shop and the merchant account never
+// end up in different states.
+//   approve: pending | rejected -> approved, merchant -> active
+//   reject:  pending | approved -> rejected, merchant -> rejected
+const SHOP_TRANSITIONS = {
+    approved: { from: ["pending", "rejected"], userStatus: "active" },
+    rejected: { from: ["pending", "approved"], userStatus: "rejected" }
 };
+
+const changeShopStatus = async (shopId, newStatus) => {
+    const transition = SHOP_TRANSITIONS[newStatus];
+    const shopRef = shopsCollection.doc(shopId);
+
+    return db.runTransaction(async (transaction) => {
+        const shopDoc = await transaction.get(shopRef);
+
+        if (!shopDoc.exists) {
+            throw new Error("Shop not found.");
+        }
+
+        const shopData = shopDoc.data();
+
+        if (shopData.status === newStatus) {
+            throw new Error(`Shop is already ${newStatus}.`);
+        }
+
+        if (!transition.from.includes(shopData.status)) {
+            throw new Error(`A ${shopData.status} shop cannot be ${newStatus}.`);
+        }
+
+        const ownerRef = usersCollection.doc(shopData.ownerId);
+        const ownerDoc = await transaction.get(ownerRef);
+
+        if (!ownerDoc.exists) {
+            throw new Error("Shop owner not found.");
+        }
+
+        transaction.update(shopRef, {
+            status: newStatus,
+            updatedAt: FieldValue.serverTimestamp()
+        });
+
+        transaction.update(ownerRef, {
+            status: transition.userStatus,
+            updatedAt: FieldValue.serverTimestamp()
+        });
+
+        return {
+            shopId,
+            status: newStatus,
+            previousStatus: shopData.status
+        };
+    });
+};
+
+// Approve a shop (Admin)
+const approveShop = (shopId) => changeShopStatus(shopId, "approved");
 
 // Reject a shop (Admin)
-const rejectShop = async (shopId) => {
-    const shopRef = shopsCollection.doc(shopId);
-    const shopDoc = await shopRef.get();
-
-    if (!shopDoc.exists) {
-        throw new Error("Shop not found.");
-    }
-
-    const shopData = shopDoc.data();
-
-    await shopRef.update({
-        status: "rejected",
-        updatedAt: FieldValue.serverTimestamp()
-    });
-
-    await usersCollection.doc(shopData.ownerId).update({
-        status: "rejected"
-    });
-
-    return {
-        shopId,
-        status: "rejected"
-    };
-};
+const rejectShop = (shopId) => changeShopStatus(shopId, "rejected");
 
 module.exports = {
     createShop,
