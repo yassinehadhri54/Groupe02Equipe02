@@ -42,6 +42,14 @@ const verifyToken = async (req, res, next) => {
 
         const userData = userDoc.data();
 
+        // Suspended by an admin (the Firebase account is also disabled).
+        if (userData.status === "suspended") {
+            return res.status(403).json({
+                success: false,
+                message: "This account has been suspended."
+            });
+        }
+
         // 5. Attach user information to request
         // Pending merchants can authenticate and register their shop.
         req.user = {

@@ -1,6 +1,6 @@
 # Tests Postman — CampusSave API
 
-- `collections/CampusSave-API.postman_collection.json` : 99 requêtes réparties en 11 dossiers, chacune avec ses tests automatiques.
+- `collections/CampusSave-API.postman_collection.json` : 116 requêtes réparties en 12 dossiers, chacune avec ses tests automatiques.
 - `environments/CampusSave-local.postman_environment.json` : variables, **sans aucun mot de passe ni token**.
 
 ## 1. Importer
@@ -40,7 +40,8 @@ Utilisez le **Collection Runner** (clic droit sur la collection → *Run*), dans
 | 07 Refus | réservation → refus du commerçant → stock restitué | ⚠️ crée une réservation (refusée) |
 | 08 Dashboards | 3 dashboards + 403 entre rôles | non |
 | 09 Notifications | notifications créées par 05 à 07, lecture, token FCM de test | ⚠️ marque une notification comme lue |
-| 10 Logout | logout de l'étudiant 2, puis l'ancien token → 401 | ⚠️ déconnecte l'étudiant 2 sur tous ses appareils |
+| 10 Admin : suspension | suspend puis réactive l'étudiant 2 et l'autre commerçant (dont sa boutique), refus 400 / 403 / 404 / 409 | ⚠️ les deux comptes sont **temporairement suspendus** puis réactivés, et doivent se reconnecter |
+| 11 Logout | logout de l'étudiant 2, puis l'ancien token → 401 | ⚠️ déconnecte l'étudiant 2 sur tous ses appareils |
 
 Les tokens Firebase expirent après **1 heure**. Si vous obtenez des 401 inattendus, relancez le dossier **01**.
 

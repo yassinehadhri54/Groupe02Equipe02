@@ -6,7 +6,8 @@ const {
     getMyProfile,
     updateMyProfile,
     getUsers,
-    getUser
+    getUser,
+    updateUserStatus
 } = require("../controllers/userController");
 
 const { verifyToken } = require("../middlewares/authMiddleware");
@@ -19,5 +20,6 @@ router.put("/profile", verifyToken, updateMyProfile);
 // Admin only
 router.get("/", verifyToken, verifyRole("admin"), getUsers);
 router.get("/:id", verifyToken, verifyRole("admin"), getUser);
+router.put("/:id/status", verifyToken, verifyRole("admin"), updateUserStatus);
 
 module.exports = router;

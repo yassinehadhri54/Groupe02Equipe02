@@ -117,9 +117,16 @@ const login = async (req, res) => {
 
         const firebaseError = error.response?.data?.error?.message;
 
+        if (firebaseError === "USER_DISABLED") {
+            return res.status(403).json({
+                success: false,
+                message: "This account has been suspended."
+            });
+        }
+
         if (
             ["EMAIL_NOT_FOUND", "INVALID_PASSWORD",
-             "INVALID_LOGIN_CREDENTIALS", "USER_DISABLED"].includes(firebaseError)
+             "INVALID_LOGIN_CREDENTIALS"].includes(firebaseError)
         ) {
             return res.status(401).json({
                 success: false,
