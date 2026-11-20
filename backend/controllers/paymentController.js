@@ -107,6 +107,70 @@ const verifyPayment = async (req, res) => {
     }
 };
 
+// GET /api/payments/webhook?payment_ref=...
+// Public: called by Konnect. The status is re-fetched from Konnect,
+// so the request itself is never trusted.
+const konnectWebhook = async (req, res) => {
+    try {
+        const paymentRef = req.query.payment_ref;
+
+        if (!paymentRef || typeof paymentRef !== "string") {
+            return res.status(400).json({
+                success: false,
+                message: "payment_ref is required."
+            });
+        }
+
+        const result = await paymentService.handleKonnectWebhook(paymentRef);
+
+        // Only the status is returned: this endpoint is public.
+        return res.status(200).json({
+            success: true,
+            status: result.status
+        });
+    } catch (error) {
+        console.error(
+            "Konnect webhook error:",
+            error.response?.data || error.message
+        );
+
+        return res.status(getErrorStatus(error)).json({
+            success: false,
+            message: "Unable to process payment notification."
+        });
+    }
+};
+
+// POST /api/payments/:id/cancel
+const cancelPayment = async (req, res) => {
+    try {
+        if (!isStudent(req)) {
+            return res.status(403).json({
+                success: false,
+                message: "Only students can cancel payments."
+            });
+        }
+
+        const result = await paymentService.cancelPayment(
+            getUserId(req),
+            req.params.id
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: result.message,
+            data: result
+        });
+    } catch (error) {
+        console.error("Cancel payment error:", error.message);
+
+        return res.status(getErrorStatus(error)).json({
+            success: false,
+            message: error.message || "Unable to cancel payment."
+        });
+    }
+};
+
 // POST /api/payments/:id/confirm-mock
 const confirmMockPayment = async (req, res) => {
     try {
@@ -205,6 +269,8 @@ const getMyPayments = async (req, res) => {
 module.exports = {
     initiatePayment,
     verifyPayment,
+    konnectWebhook,
+    cancelPayment,
     confirmMockPayment,
     getPayment,
     getMyPayments

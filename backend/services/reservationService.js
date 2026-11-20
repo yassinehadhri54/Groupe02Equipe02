@@ -1,12 +1,13 @@
 
 const { db } = require("../config/firebase");
 const { FieldValue } = require("firebase-admin/firestore");
+const crypto = require("crypto");
+const QRCode = require("qrcode");
+const { getOfferDiscountPrice } = require("../utils/offerFields");
 
 const reservationsCollection = db.collection("reservations");
 const offersCollection = db.collection("offers");
 const shopsCollection = db.collection("shops");
-
-const getUserId = (user) => user?.uid || user?.userId || null;
 
 // Create a reservation
 const createReservation = async (studentId, offerId, quantity) => {
@@ -16,17 +17,14 @@ const createReservation = async (studentId, offerId, quantity) => {
 
     const requestedQuantity = Number(quantity);
 
-    if (
-        !Number.isInteger(requestedQuantity) ||
-        requestedQuantity <= 0
-    ) {
+    if (!Number.isInteger(requestedQuantity) || requestedQuantity <= 0) {
         throw new Error("Quantity must be a positive integer.");
     }
 
     const offerRef = offersCollection.doc(offerId);
     const reservationRef = reservationsCollection.doc();
 
-    const reservation = await db.runTransaction(async (transaction) => {
+    return db.runTransaction(async (transaction) => {
         const offerSnapshot = await transaction.get(offerRef);
 
         if (!offerSnapshot.exists) {
@@ -34,7 +32,6 @@ const createReservation = async (studentId, offerId, quantity) => {
         }
 
         const offer = offerSnapshot.data();
-
         const availableQuantity = Number(offer.availableQuantity);
 
         if (
@@ -44,8 +41,10 @@ const createReservation = async (studentId, offerId, quantity) => {
             throw new Error("Not enough offer quantity available.");
         }
 
+        // Discount price is "discountPrice" or "discountedPrice"
+        // depending on who created the offer.
         const unitPrice = Number(
-            offer.discountedPrice ?? offer.price
+            getOfferDiscountPrice(offer) ?? offer.originalPrice
         );
 
         if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
@@ -97,9 +96,8 @@ const createReservation = async (studentId, offerId, quantity) => {
             reservationId: reservationRef.id
         };
     });
-
-    return reservation;
 };
+
 
 // Get reservations belonging to a student
 const getMyReservations = async (studentId) => {
@@ -113,20 +111,29 @@ const getMyReservations = async (studentId) => {
     }));
 };
 
+
 // Get reservations belonging to shops managed by a merchant
 const getMerchantReservations = async (merchantId) => {
-    const shopsSnapshot = await shopsCollection
-        .where("merchantId", "==", merchantId)
-        .get();
+    // Shops are created with "ownerId" (see shopService.createShop).
+    // "merchantId" is also checked for older documents, matching the
+    // ownership check used in updateReservationStatus / verifyReservationQR.
+    const [ownerSnapshot, legacySnapshot] = await Promise.all([
+        shopsCollection.where("ownerId", "==", merchantId).get(),
+        shopsCollection.where("merchantId", "==", merchantId).get()
+    ]);
 
-    if (shopsSnapshot.empty) {
+    const shopIds = [
+        ...new Set([
+            ...ownerSnapshot.docs.map((doc) => doc.id),
+            ...legacySnapshot.docs.map((doc) => doc.id)
+        ])
+    ];
+
+    if (shopIds.length === 0) {
         return [];
     }
-
-    const shopIds = shopsSnapshot.docs.map((doc) => doc.id);
     const reservations = [];
 
-    // Firestore "in" queries accept a maximum of 30 values.
     for (let i = 0; i < shopIds.length; i += 30) {
         const shopIdsBatch = shopIds.slice(i, i + 30);
 
@@ -145,16 +152,20 @@ const getMerchantReservations = async (merchantId) => {
     return reservations;
 };
 
-// Merchant confirms, rejects, or completes a reservation
+
+// Merchant confirms or rejects a reservation.
+// Completion is only allowed through QR verification.
 const updateReservationStatus = async (
     merchantId,
     reservationId,
     newStatus
 ) => {
-    const allowedStatuses = ["confirmed", "rejected", "completed"];
+    const allowedStatuses = ["confirmed", "rejected"];
 
     if (!allowedStatuses.includes(newStatus)) {
-        throw new Error("Invalid reservation status.");
+        throw new Error(
+            "Invalid reservation status. Use QR verification to complete a reservation."
+        );
     }
 
     const reservationRef = reservationsCollection.doc(reservationId);
@@ -176,25 +187,34 @@ const updateReservationStatus = async (
         }
 
         const shop = shopSnapshot.data();
-        const shopMerchantId = shop.merchantId || shop.ownerId || shop.userId;
+        const shopMerchantId =
+            shop.merchantId || shop.ownerId || shop.userId;
 
         if (shopMerchantId !== merchantId) {
-            throw new Error("You are not allowed to update this reservation.");
+            throw new Error(
+                "You are not allowed to update this reservation."
+            );
         }
 
         if (newStatus === "confirmed") {
             if (reservation.status !== "pending") {
-                throw new Error("Only pending reservations can be confirmed.");
+                throw new Error(
+                    "Only pending reservations can be confirmed."
+                );
             }
 
             if (reservation.paymentStatus !== "paid") {
-                throw new Error("Reservation must be paid before confirmation.");
+                throw new Error(
+                    "Reservation must be paid before confirmation."
+                );
             }
         }
 
         if (newStatus === "rejected") {
             if (reservation.status !== "pending") {
-                throw new Error("Only pending reservations can be rejected.");
+                throw new Error(
+                    "Only pending reservations can be rejected."
+                );
             }
 
             if (
@@ -217,23 +237,15 @@ const updateReservationStatus = async (
             const offer = offerSnapshot.data();
             const currentQuantity = Number(offer.availableQuantity);
 
+            if (!Number.isFinite(currentQuantity)) {
+                throw new Error("Invalid offer quantity.");
+            }
+
             transaction.update(offerRef, {
                 availableQuantity:
                     currentQuantity + Number(reservation.quantity),
                 updatedAt: FieldValue.serverTimestamp()
             });
-        }
-
-        if (newStatus === "completed") {
-            if (reservation.status !== "confirmed") {
-                throw new Error(
-                    "Only confirmed reservations can be completed."
-                );
-            }
-
-            if (reservation.paymentStatus !== "paid") {
-                throw new Error("Reservation must be paid before completion.");
-            }
         }
 
         transaction.update(reservationRef, {
@@ -249,6 +261,171 @@ const updateReservationStatus = async (
     });
 };
 
+
+// Generate or refresh a student's QR Code.
+// The raw token is returned to the student but only its hash is stored.
+const generateReservationQR = async (studentId, reservationId) => {
+    if (!studentId || !reservationId) {
+        throw new Error("Student ID and reservation ID are required.");
+    }
+
+    const reservationRef = reservationsCollection.doc(reservationId);
+
+    // Generate a new unpredictable token.
+    const token = crypto.randomBytes(32).toString("hex");
+
+    // Store only the SHA-256 hash.
+    const tokenHash = crypto
+        .createHash("sha256")
+        .update(token)
+        .digest("hex");
+
+    // Convert token into a QR image.
+    const qrCodeDataURL = await QRCode.toDataURL(token);
+
+    const result = await db.runTransaction(async (transaction) => {
+        const reservationSnapshot = await transaction.get(reservationRef);
+
+        if (!reservationSnapshot.exists) {
+            throw new Error("Reservation not found.");
+        }
+
+        const reservation = reservationSnapshot.data();
+
+        if (reservation.studentId !== studentId) {
+            throw new Error(
+                "You are not allowed to access this reservation."
+            );
+        }
+
+        if (reservation.paymentStatus !== "paid") {
+            throw new Error(
+                "Reservation must be paid before generating QR Code."
+            );
+        }
+
+        if (
+            ["cancelled", "rejected", "completed"].includes(
+                reservation.status
+            )
+        ) {
+            throw new Error(
+                "QR Code cannot be generated for this reservation."
+            );
+        }
+
+        transaction.update(reservationRef, {
+            qr: {
+                tokenHash,
+                generatedAt: FieldValue.serverTimestamp(),
+                usedAt: null
+            },
+            updatedAt: FieldValue.serverTimestamp()
+        });
+
+        return {
+            reservationId,
+            status: reservation.status,
+            paymentStatus: reservation.paymentStatus
+        };
+    });
+
+    return {
+        ...result,
+        qrCode: qrCodeDataURL
+    };
+};
+
+
+// Merchant verifies the QR Code and completes the reservation.
+const verifyReservationQR = async (merchantId, token) => {
+    if (
+        typeof token !== "string" ||
+        !/^[a-f0-9]{64}$/i.test(token)
+    ) {
+        throw new Error("Invalid QR Code.");
+    }
+
+    const tokenHash = crypto
+        .createHash("sha256")
+        .update(token)
+        .digest("hex");
+
+    // Find the reservation using the stored token hash.
+    const matchingReservations = await reservationsCollection
+        .where("qr.tokenHash", "==", tokenHash)
+        .limit(1)
+        .get();
+
+    if (matchingReservations.empty) {
+        throw new Error("Invalid or expired QR Code.");
+    }
+
+    const reservationRef = matchingReservations.docs[0].ref;
+
+    return db.runTransaction(async (transaction) => {
+        const reservationSnapshot = await transaction.get(reservationRef);
+
+        if (!reservationSnapshot.exists) {
+            throw new Error("Reservation not found.");
+        }
+
+        const reservation = reservationSnapshot.data();
+
+        // Verify token again inside the transaction.
+        if (reservation.qr?.tokenHash !== tokenHash) {
+            throw new Error("Invalid or expired QR Code.");
+        }
+
+        if (reservation.qr?.usedAt) {
+            throw new Error("QR Code has already been used.");
+        }
+
+        if (reservation.paymentStatus !== "paid") {
+            throw new Error("Reservation is not paid.");
+        }
+
+        if (reservation.status !== "confirmed") {
+            throw new Error(
+                "Only confirmed reservations can be completed."
+            );
+        }
+
+        const shopRef = shopsCollection.doc(reservation.shopId);
+        const shopSnapshot = await transaction.get(shopRef);
+
+        if (!shopSnapshot.exists) {
+            throw new Error("Shop not found.");
+        }
+
+        const shop = shopSnapshot.data();
+        const shopMerchantId =
+            shop.merchantId || shop.ownerId || shop.userId;
+
+        if (shopMerchantId !== merchantId) {
+            throw new Error(
+                "You are not allowed to verify this reservation."
+            );
+        }
+
+        // One-time QR validation and reservation completion.
+        transaction.update(reservationRef, {
+            status: "completed",
+            "qr.usedAt": FieldValue.serverTimestamp(),
+            completedAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp()
+        });
+
+        return {
+            reservationId: reservationRef.id,
+            status: "completed",
+            paymentStatus: "paid",
+            message: "QR Code verified. Reservation completed successfully."
+        };
+    });
+};
+
+
 // Student cancels a pending reservation
 const cancelReservation = async (studentId, reservationId) => {
     const reservationRef = reservationsCollection.doc(reservationId);
@@ -263,11 +440,15 @@ const cancelReservation = async (studentId, reservationId) => {
         const reservation = reservationSnapshot.data();
 
         if (reservation.studentId !== studentId) {
-            throw new Error("You are not allowed to cancel this reservation.");
+            throw new Error(
+                "You are not allowed to cancel this reservation."
+            );
         }
 
         if (reservation.status !== "pending") {
-            throw new Error("Only pending reservations can be cancelled.");
+            throw new Error(
+                "Only pending reservations can be cancelled."
+            );
         }
 
         if (
@@ -290,6 +471,10 @@ const cancelReservation = async (studentId, reservationId) => {
         const offer = offerSnapshot.data();
         const currentQuantity = Number(offer.availableQuantity);
 
+        if (!Number.isFinite(currentQuantity)) {
+            throw new Error("Invalid offer quantity.");
+        }
+
         transaction.update(offerRef, {
             availableQuantity:
                 currentQuantity + Number(reservation.quantity),
@@ -309,10 +494,13 @@ const cancelReservation = async (studentId, reservationId) => {
     });
 };
 
+
 module.exports = {
     createReservation,
     getMyReservations,
     getMerchantReservations,
     updateReservationStatus,
+    generateReservationQR,
+    verifyReservationQR,
     cancelReservation
 };

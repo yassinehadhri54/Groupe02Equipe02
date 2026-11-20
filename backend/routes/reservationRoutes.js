@@ -22,6 +22,13 @@ router.get(
     reservationController.getMyReservations
 );
 
+router.get(
+    "/:id/qr",
+    verifyToken,
+    verifyRole("student"),
+    reservationController.generateReservationQR
+);
+
 router.put(
     "/:id/cancel",
     verifyToken,
@@ -35,6 +42,13 @@ router.get(
     verifyToken,
     verifyRole("merchant"),
     reservationController.getMerchantReservations
+);
+
+router.post(
+    "/verify-qr",
+    verifyToken,
+    verifyRole("merchant"),
+    reservationController.verifyReservationQR
 );
 
 router.put(
