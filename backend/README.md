@@ -8,7 +8,7 @@ Ce backend est **l'API unique** utilisée par l'application **Web (React.js)** e
 |---|---|
 | **Étudiant** (`student`) | consulter et rechercher les offres, réserver, payer, obtenir un QR code, annuler, voir son dashboard |
 | **Commerçant** (`merchant`) | inscrire sa boutique, publier, modifier et supprimer ses offres, confirmer ou refuser les réservations, scanner les QR codes, voir son dashboard |
-| **Administrateur** (`admin`) | lister les utilisateurs, approuver ou rejeter les boutiques, voir les statistiques globales |
+| **Administrateur** (`admin`) | lister, suspendre et réactiver les utilisateurs, approuver ou rejeter les boutiques, voir les statistiques globales |
 
 ---
 
@@ -98,6 +98,9 @@ Base : `http://localhost:5000/api`
 | PUT | `/profile` | connecté | `fullName`, `phone`, `photoURL` (le rôle, le statut et l'email ne sont pas modifiables) |
 | GET | `/` | admin | — |
 | GET | `/:id` | admin | — |
+| PUT | `/:id/status` | admin | `status` : `suspended` ou `active` |
+
+**Suspension :** le compte Firebase est désactivé et ses sessions sont révoquées. L'utilisateur ne peut plus se connecter (403 « This account has been suspended. »), et ses tokens existants sont refusés. La boutique d'un commerçant suspendu passe aussi en `suspended` : ses offres disparaissent et ne peuvent plus être réservées. **La réactivation** restaure les statuts précédents. Un admin ne peut ni se suspendre lui-même ni suspendre un autre admin.
 
 ### Boutiques — `/api/shops`
 | Méthode | Route | Accès | Body |

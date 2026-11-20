@@ -2,8 +2,35 @@
 const {
     getUserById,
     updateUserProfile,
-    getAllUsers
+    getAllUsers,
+    setUserStatus
 } = require("../services/userService");
+
+// PUT /api/users/:id/status   { "status": "suspended" | "active" }  (Admin only)
+const updateUserStatus = async (req, res) => {
+    try {
+        const user = await setUserStatus(
+            req.user.uid,
+            req.params.id,
+            req.body?.status
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: user.status === "suspended"
+                ? "User suspended."
+                : "User reactivated.",
+            user
+        });
+    } catch (error) {
+        console.error("Update user status error:", error.message);
+
+        return res.status(error.statusCode || 500).json({
+            success: false,
+            message: error.statusCode ? error.message : "Failed to update user status."
+        });
+    }
+};
 
 // GET connected user's profile
 const getMyProfile = async (req, res) => {
@@ -92,5 +119,6 @@ module.exports = {
     getMyProfile,
     updateMyProfile,
     getUsers,
-    getUser
+    getUser,
+    updateUserStatus
 };
