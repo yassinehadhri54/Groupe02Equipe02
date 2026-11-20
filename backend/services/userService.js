@@ -19,7 +19,6 @@ const getUserById = async (uid) => {
 // Update user profile
 const updateUserProfile = async (uid, updateData) => {
     const allowedFields = ["name", "phone", "photoURL"];
-
     const filteredData = {};
 
     for (const field of allowedFields) {
@@ -46,7 +45,18 @@ const updateUserProfile = async (uid, updateData) => {
     return await getUserById(uid);
 };
 
+// Get all users (Admin only)
+const getAllUsers = async () => {
+    const usersSnapshot = await db.collection("users").get();
+
+    return usersSnapshot.docs.map(doc => ({
+        uid: doc.id,
+        ...doc.data()
+    }));
+};
+
 module.exports = {
     getUserById,
-    updateUserProfile
+    updateUserProfile,
+    getAllUsers
 };

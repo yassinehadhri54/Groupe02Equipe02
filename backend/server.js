@@ -12,6 +12,7 @@ const shopRoutes = require("./routes/shopRoutes");
 const offerRoutes = require("./routes/offerRoutes");
 const reservationRoutes = require("./routes/reservationRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
+const dashboardRoutes = require("./routes/dashboardRoutes");
 
 // Initialize Express
 const app = express();
@@ -80,6 +81,7 @@ app.use("/api/shops", shopRoutes);
 app.use("/api/offers", offerRoutes);
 app.use("/api/reservations", reservationRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
 // ================================
 // 404 - ROUTE NOT FOUND
@@ -133,6 +135,7 @@ app.listen(PORT, () => {
     console.log("Offers:         /api/offers");
     console.log("Reservations:   /api/reservations");
     console.log("Payments:       /api/payments");
+    console.log("Dashboard:      /api/dashboard");
 
     console.log("----------------------------------");
     console.log("Firebase:        Configured");

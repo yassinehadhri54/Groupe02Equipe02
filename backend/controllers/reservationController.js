@@ -151,10 +151,12 @@ const updateReservationStatus = async (req, res) => {
 // Cancel reservation - Student
 const cancelReservation = async (req, res) => {
     try {
-        const result = await reservationService.cancelReservation(
-            req.params.id,
-            req.user.uid
-        );
+        
+const result = await reservationService.cancelReservation(
+    req.user.uid,
+    req.params.id
+);
+
 
         return res.status(200).json({
             success: true,
@@ -184,10 +186,94 @@ const cancelReservation = async (req, res) => {
 };
 
 
+// Generate QR Code - Student
+const generateReservationQR = async (req, res) => {
+    try {
+        const result = await reservationService.generateReservationQR(
+            req.user.uid,
+            req.params.id
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "QR Code generated successfully.",
+            data: result
+        });
+    } catch (error) {
+        console.error("Generate QR error:", error);
+
+        const messages = [
+            "Reservation not found.",
+            "You are not allowed to access this reservation.",
+            "Reservation must be paid before generating QR Code.",
+            "QR Code cannot be generated for this reservation."
+        ];
+
+        const statusCode = error.message === "Reservation not found."
+            ? 404
+            : messages.includes(error.message) ? 400 : 500;
+
+        return res.status(statusCode).json({
+            success: false,
+            message: error.message || "Failed to generate QR Code."
+        });
+    }
+};
+
+
+// Verify QR Code - Merchant
+const verifyReservationQR = async (req, res) => {
+    try {
+        const { token } = req.body || {};
+
+        if (!token) {
+            return res.status(400).json({
+                success: false,
+                message: "QR Code token is required."
+            });
+        }
+
+        const result = await reservationService.verifyReservationQR(
+            req.user.uid,
+            token
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "QR Code verified successfully.",
+            data: result
+        });
+    } catch (error) {
+        console.error("Verify QR error:", error);
+
+        const messages = [
+            "Invalid QR Code.",
+            "Invalid or expired QR Code.",
+            "Reservation not found.",
+            "QR Code has already been used.",
+            "Reservation is not paid.",
+            "Only confirmed reservations can be completed.",
+            "Shop not found.",
+            "You are not allowed to verify this reservation."
+        ];
+
+        const statusCode = error.message === "Reservation not found."
+            ? 404
+            : messages.includes(error.message) ? 400 : 500;
+
+        return res.status(statusCode).json({
+            success: false,
+            message: error.message || "Failed to verify QR Code."
+        });
+    }
+};
+
 module.exports = {
     createReservation,
     getMyReservations,
     getMerchantReservations,
     updateReservationStatus,
-    cancelReservation
+    cancelReservation,
+    generateReservationQR,
+verifyReservationQR
 };

@@ -1,6 +1,11 @@
 
 const { db } = require("../config/firebase");
 const { FieldValue } = require("firebase-admin/firestore");
+const {
+    LISTED_OFFER_STATUSES,
+    getOfferOwnerId,
+    normalizeOffer
+} = require("../utils/offerFields");
 
 const offersCollection = db.collection("offers");
 const shopsCollection = db.collection("shops");
@@ -62,31 +67,34 @@ const createOffer = async (uid, offerData) => {
 };
 
 // Récupérer toutes les offres disponibles
+// Filters are applied in memory: the price is stored as "discountPrice"
+// or "discountedPrice" depending on who created the offer, and this
+// also avoids needing composite Firestore indexes.
 const getAllOffers = async (filters = {}) => {
-    let query = offersCollection.where("status", "==", "available");
+    const snapshot = await offersCollection
+        .where("status", "in", LISTED_OFFER_STATUSES)
+        .get();
+
+    let offers = snapshot.docs.map((doc) => normalizeOffer(doc.id, doc.data()));
 
     if (filters.category) {
-        query = query.where("category", "==", filters.category);
+        offers = offers.filter((offer) => offer.category === filters.category);
     }
 
     if (filters.shopId) {
-        query = query.where("shopId", "==", filters.shopId);
+        offers = offers.filter((offer) => offer.shopId === filters.shopId);
     }
 
     if (filters.maxPrice !== undefined) {
-        query = query.where(
-            "discountPrice",
-            "<=",
-            Number(filters.maxPrice)
-        );
+        const maxPrice = Number(filters.maxPrice);
+
+        offers = offers.filter((offer) => {
+            const price = Number(offer.discountPrice);
+            return Number.isFinite(price) && price <= maxPrice;
+        });
     }
 
-    const snapshot = await query.get();
-
-    return snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data()
-    }));
+    return offers;
 };
 
 // Récupérer une offre par son ID
@@ -97,22 +105,25 @@ const getOfferById = async (offerId) => {
         return null;
     }
 
-    return {
-        id: offerDoc.id,
-        ...offerDoc.data()
-    };
+    return normalizeOffer(offerDoc.id, offerDoc.data());
 };
 
 // Récupérer les offres du commerçant connecté
+// The owner is stored as "ownerId" or "merchantId" depending on who
+// created the offer.
 const getMyOffers = async (uid) => {
-    const snapshot = await offersCollection
-        .where("ownerId", "==", uid)
-        .get();
+    const [ownerSnapshot, merchantSnapshot] = await Promise.all([
+        offersCollection.where("ownerId", "==", uid).get(),
+        offersCollection.where("merchantId", "==", uid).get()
+    ]);
 
-    return snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data()
-    }));
+    const offersById = new Map();
+
+    [...ownerSnapshot.docs, ...merchantSnapshot.docs].forEach((doc) => {
+        offersById.set(doc.id, normalizeOffer(doc.id, doc.data()));
+    });
+
+    return [...offersById.values()];
 };
 
 // Modifier une offre
@@ -124,7 +135,7 @@ const updateOffer = async (uid, offerId, updateData) => {
         throw new Error("Offer not found.");
     }
 
-    if (offerDoc.data().ownerId !== uid) {
+    if (getOfferOwnerId(offerDoc.data()) !== uid) {
         throw new Error("You are not allowed to modify this offer.");
     }
 
@@ -152,7 +163,7 @@ const updateOffer = async (uid, offerId, updateData) => {
         throw new Error("No valid fields provided for update.");
     }
 
-    const current = offerDoc.data();
+    const current = normalizeOffer(offerDoc.id, offerDoc.data());
 
     if (cleanData.originalPrice !== undefined) {
         cleanData.originalPrice = Number(cleanData.originalPrice);
@@ -199,10 +210,7 @@ const updateOffer = async (uid, offerId, updateData) => {
 
     const updatedDoc = await offerRef.get();
 
-    return {
-        id: updatedDoc.id,
-        ...updatedDoc.data()
-    };
+    return normalizeOffer(updatedDoc.id, updatedDoc.data());
 };
 
 // Supprimer une offre
@@ -214,7 +222,7 @@ const deleteOffer = async (uid, offerId) => {
         throw new Error("Offer not found.");
     }
 
-    if (offerDoc.data().ownerId !== uid) {
+    if (getOfferOwnerId(offerDoc.data()) !== uid) {
         throw new Error("You are not allowed to delete this offer.");
     }
 
