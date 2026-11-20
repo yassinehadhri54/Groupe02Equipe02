@@ -346,6 +346,9 @@ const generateReservationQR = async (studentId, reservationId) => {
 
     return {
         ...result,
+        // Raw token = content of the QR image. Only the student receives it;
+        // clients may render the QR themselves or show the image.
+        token,
         qrCode: qrCodeDataURL
     };
 };
