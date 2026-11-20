@@ -3,7 +3,7 @@ const { db } = require("../config/firebase");
 const shopService = require("./shopService");
 const offerService = require("./offerService");
 const reservationService = require("./reservationService");
-const { LISTED_OFFER_STATUSES, normalizeOffer } = require("../utils/offerFields");
+const { isOfferBookable, isOfferExpired, normalizeOffer } = require("../utils/offerFields");
 
 // All statistics are computed from Firestore data at request time.
 // Revenue and spending only count payments marked "paid", which the
@@ -57,9 +57,8 @@ const sortNewestFirst = (items) =>
         (a, b) => (toMillis(b.createdAt) ?? 0) - (toMillis(a.createdAt) ?? 0)
     );
 
-const isListedOffer = (offer) =>
-    LISTED_OFFER_STATUSES.includes(offer.status) &&
-    toNumber(offer.availableQuantity) > 0;
+// Listed = visible to students: listed status, not expired, not sold out.
+const isListedOffer = (offer) => isOfferBookable(offer);
 
 const summarizeReservation = (reservation) => ({
     reservationId: reservation.reservationId,
@@ -243,6 +242,7 @@ const getMerchantDashboard = async (merchantId) => {
             total: offers.length,
             listed: offers.filter(isListedOffer).length,
             soldOut: offers.filter((o) => toNumber(o.availableQuantity) <= 0).length,
+            expired: offers.filter((o) => isOfferExpired(o)).length,
             byStatus: countBy(offers, (o) => o.status)
         },
         reservations: {

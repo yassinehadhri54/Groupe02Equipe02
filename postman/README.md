@@ -20,7 +20,7 @@ Dans l'environnement, remplissez la colonne **Current value**. Elle reste sur vo
 | `merchantEmail` / `merchantPassword` | le commerçant **propriétaire de l'offre `offerId`** (boutique approuvée) |
 | `merchant2Email` / `merchant2Password` | un **autre** commerçant |
 | `adminEmail` / `adminPassword` | l'administrateur |
-| `offerId` | une offre du commerçant ci-dessus, avec au moins 2 unités en stock (par défaut `TqeoTGH3imTHIVSekMVd`) |
+| `offerId` | une offre du commerçant ci-dessus, avec au moins 2 unités en stock et un **retrait pas encore terminé** (par défaut `Z16G94XnppY4rqCETYHv`, « lablebi », retrait jusqu'au 24/11/2026 17:00). Une offre expirée n'est plus réservable : changez cette valeur si besoin. |
 
 > ⚠️ N'exportez pas l'environnement après l'avoir rempli, et ne commitez jamais de mot de passe.
 
