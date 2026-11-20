@@ -41,7 +41,9 @@ const parsePickupTime = (value) => {
 };
 
 // Throws a 400-style Error when the pickup window is invalid.
-const validatePickupWindow = (pickupStart, pickupEnd) => {
+// A dated window must also end in the future (an offer cannot be created
+// or moved to a pickup time that is already over).
+const validatePickupWindow = (pickupStart, pickupEnd, now = Date.now()) => {
     const start = parsePickupTime(pickupStart);
     const end = parsePickupTime(pickupEnd);
 
@@ -55,6 +57,10 @@ const validatePickupWindow = (pickupStart, pickupEnd) => {
 
     if (start.value >= end.value) {
         throw new Error("pickupStart must be earlier than pickupEnd.");
+    }
+
+    if (end.kind === "datetime" && end.value <= now) {
+        throw new Error("pickupEnd must be in the future.");
     }
 };
 

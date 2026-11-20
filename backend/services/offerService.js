@@ -4,6 +4,7 @@ const { FieldValue } = require("firebase-admin/firestore");
 const {
     LISTED_OFFER_STATUSES,
     getOfferOwnerId,
+    isOfferBookable,
     normalizeOffer
 } = require("../utils/offerFields");
 const {
@@ -104,7 +105,10 @@ const getAllOffers = async (filters = {}) => {
         .where("status", "in", LISTED_OFFER_STATUSES)
         .get();
 
-    let offers = snapshot.docs.map((doc) => normalizeOffer(doc.id, doc.data()));
+    // Expired (pickup window ended) and sold-out offers are not listed.
+    let offers = snapshot.docs
+        .map((doc) => normalizeOffer(doc.id, doc.data()))
+        .filter((offer) => isOfferBookable(offer));
 
     // Only offers of approved shops are public. The shop name is taken
     // from the shop document (some offers do not store it).

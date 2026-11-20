@@ -5,6 +5,7 @@ const crypto = require("crypto");
 const QRCode = require("qrcode");
 const {
     getOfferDiscountPrice,
+    isOfferExpired,
     LISTED_OFFER_STATUSES
 } = require("../utils/offerFields");
 const notificationService = require("./notificationService");
@@ -39,6 +40,10 @@ const createReservation = async (studentId, offerId, quantity) => {
 
         if (!LISTED_OFFER_STATUSES.includes(offer.status)) {
             throw new Error("This offer is not available.");
+        }
+
+        if (isOfferExpired(offer)) {
+            throw new Error("This offer has expired: its pickup time is over.");
         }
 
         const availableQuantity = Number(offer.availableQuantity);

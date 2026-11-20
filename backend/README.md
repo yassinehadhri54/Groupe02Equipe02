@@ -129,7 +129,19 @@ Règles de validation :
 - `pickupStart` et `pickupEnd` utilisent le format `HH:MM` ou `YYYY-MM-DDTHH:MM`, et le début doit être avant la fin ;
 - `imageURL` est une URL http(s).
 
-La recherche ignore les majuscules et les accents. Seules les offres des boutiques approuvées sont listées.
+La recherche ignore les majuscules et les accents.
+
+**Seules les offres réservables sont listées** :
+- la boutique est approuvée ;
+- l'offre est en statut `available` ou `active` ;
+- elle n'est pas épuisée ;
+- elle n'est **pas expirée**, c'est-à-dire que son `pickupEnd` daté (`YYYY-MM-DDTHH:MM`) n'est pas dépassé.
+
+Les autres règles liées aux horaires :
+- Une offre au format `HH:MM` correspond à un créneau quotidien sans date : elle n'expire pas.
+- Le détail d'une offre indique `isExpired` et `isSoldOut`.
+- Une offre expirée ne peut pas être réservée (400).
+- Une offre ne peut pas être créée, ni déplacée, vers un horaire déjà passé.
 
 ### Réservations — `/api/reservations`
 | Méthode | Route | Accès | Body |
