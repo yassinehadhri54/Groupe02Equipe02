@@ -12,6 +12,9 @@ router.get("/webhook", paymentController.konnectWebhook);
 // Protect every other payment endpoint
 router.use(verifyToken);
 
+// Read-only payment mode for the authenticated student frontend
+router.get("/config", paymentController.getPaymentConfig);
+
 // Student initiates a payment
 router.post("/initiate", paymentController.initiatePayment);
 
