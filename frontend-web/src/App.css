@@ -1526,3 +1526,61 @@ a:focus-visible {
     padding: 18px;
   }
 }
+/* BARRE DE RECHERCHE DU CATALOGUE */
+.offers-search {
+  width: 100%;
+  max-width: 550px;
+  margin: 0 auto 25px;
+}
+
+.offers-search input {
+  width: 100%;
+  padding: 15px 20px;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  background: #fff;
+  color: #333;
+  font-size: 15px;
+  outline: none;
+  transition: all 0.3s ease;
+  box-sizing: border-box;
+}
+
+.offers-search input:focus {
+  border-color: #8F0401;
+  box-shadow: 0 0 0 3px rgba(143, 4, 1, 0.1);
+}
+
+.offers-search input::placeholder {
+  color: #999;
+}/* TRI DES OFFRES PAR PRIX */
+.offers-sort {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 0 auto 20px;
+  flex-wrap: wrap;
+}
+
+.offers-sort label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+}
+
+.offers-sort select {
+  padding: 10px 15px;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  background: #fff;
+  color: #333;
+  font-size: 14px;
+  cursor: pointer;
+  outline: none;
+}
+
+.offers-sort select:focus {
+  border-color: #8F0401;
+  box-shadow: 0 0 0 3px rgba(143, 4, 1, 0.1);
+}

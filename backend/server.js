@@ -9,7 +9,7 @@ const { db } = require("./config/firebase");
 const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
 const offerRoutes = require("./routes/offerRoutes");
-
+const reservationRoutes = require("./routes/reservationRoutes");
 const app = express();
 
 // Middlewares
@@ -57,7 +57,8 @@ app.use("/api/users", userRoutes);
 
 // Offer routes
 app.use("/api/offers", offerRoutes);
-
+// Reservation routes
+app.use("/api/reservations", reservationRoutes);
 // Start server
 const PORT = process.env.PORT || 5000;
 
@@ -66,4 +67,5 @@ app.listen(PORT, () => {
     console.log("Auth routes mounted successfully!");
     console.log("User routes mounted successfully!");
     console.log("Offer routes mounted successfully!");
+    console.log("Reservation routes mounted successfully!");
 });

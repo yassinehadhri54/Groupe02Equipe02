@@ -10,7 +10,16 @@ const {
 // Register
 const register = async (req, res) => {
     try {
-        const { fullName, email, password, role } = req.body;
+        const {
+            fullName,
+            email,
+            password,
+            role,
+            shopName,
+            shopAddress,
+            shopPhone,
+            shopDescription
+        } = req.body;
 
         if (!fullName || !email || !password || !role) {
             return res.status(400).json({
@@ -42,11 +51,29 @@ const register = async (req, res) => {
             });
         }
 
+        // Vérifier les informations de la boutique
+        // uniquement pour les commerçants
+        if (
+            role === "merchant" &&
+            (!shopName?.trim() ||
+             !shopAddress?.trim() ||
+             !shopPhone?.trim())
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Shop name, address and phone are required."
+            });
+        }
+
         const user = await registerUser({
             fullName,
             email,
             password,
-            role
+            role,
+            shopName,
+            shopAddress,
+            shopPhone,
+            shopDescription
         });
 
         return res.status(201).json({
@@ -174,6 +201,7 @@ module.exports = {
     login,
     getMe
 };
+
 console.log("Controller exports:", {
     register: typeof register,
     login: typeof login,

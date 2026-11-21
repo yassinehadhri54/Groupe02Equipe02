@@ -4,7 +4,16 @@ const { auth, db } = require("../config/firebase");
 const { FieldValue } = require("firebase-admin/firestore");
 
 // Register
-const registerUser = async ({ fullName, email, password, role }) => {
+const registerUser = async ({
+    fullName,
+    email,
+    password,
+    role,
+    shopName,
+    shopAddress,
+    shopPhone,
+    shopDescription
+}) => {
     const userRecord = await auth.createUser({
         email,
         password,
@@ -22,17 +31,49 @@ const registerUser = async ({ fullName, email, password, role }) => {
             createdAt: FieldValue.serverTimestamp()
         };
 
-        await db.collection("users")
-            .doc(userRecord.uid)
-            .set(userProfile);
+        const batch = db.batch();
+
+        const userRef = db.collection("users").doc(userRecord.uid);
+
+        batch.set(userRef, userProfile);
+
+        let createdShopId = null;
+
+        // Créer automatiquement la boutique du commerçant
+        if (role === "merchant") {
+            const shopRef = db.collection("shops").doc();
+
+            createdShopId = shopRef.id;
+
+            const shopData = {
+                shopId: shopRef.id,
+                ownerId: userRecord.uid,
+                ownerName: fullName,
+                ownerEmail: email,
+                name: shopName.trim(),
+                address: shopAddress.trim(),
+                phone: shopPhone.trim(),
+                email,
+                description: shopDescription?.trim() || "",
+                status: "pending",
+                createdAt: FieldValue.serverTimestamp(),
+                updatedAt: FieldValue.serverTimestamp()
+            };
+
+            batch.set(shopRef, shopData);
+        }
+
+        await batch.commit();
 
         return {
             uid: userRecord.uid,
             fullName,
             email,
             role,
-            status: userProfile.status
+            status: userProfile.status,
+            ...(createdShopId && { shopId: createdShopId })
         };
+
     } catch (error) {
         await auth.deleteUser(userRecord.uid);
         throw error;

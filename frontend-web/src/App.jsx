@@ -5,11 +5,14 @@ import './App.css'
 
 function App() {
   const [activeCategory, setActiveCategory] = useState('Tous')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [sortOrder, setSortOrder] = useState('default')
   const [selectedOffer, setSelectedOffer] = useState(null)
   const [quantity, setQuantity] = useState(1)
   const [reservationSuccess, setReservationSuccess] = useState(false)
   const [reservations, setReservations] = useState([])
-
+const [reservationLoading, setReservationLoading] = useState(false)
+const [reservationError, setReservationError] = useState('')
   // Gestion des offres commerçant
   const [merchantOffers, setMerchantOffers] = useState([])
   const [platformOffers, setPlatformOffers] = useState([])
@@ -54,12 +57,16 @@ const [platformOffersLoading, setPlatformOffersLoading] = useState(false)
   const [usersMessage, setUsersMessage] = useState('')
 
   // Formulaire d'authentification
-  const [authForm, setAuthForm] = useState({
-    fullName: '',
-    email: '',
-    password: '',
-    role: 'student'
-  })
+ const [authForm, setAuthForm] = useState({
+  fullName: '',
+  email: '',
+  password: '',
+  role: 'student',
+  shopName: '',
+  shopAddress: '',
+  shopPhone: '',
+  shopDescription: ''
+})
 
   // Vérifier la session
   useEffect(() => {
@@ -263,9 +270,9 @@ const realOffers = platformOffers.map(offer => {
     location: offer.address || 'Adresse non renseignée',
     price: `${discountedPrice.toFixed(3)} DT`,
     oldPrice: `${originalPrice.toFixed(3)} DT`,
-    portions: Number(
-      offer.quantity ?? offer.availableQuantity ?? 0
-    ),
+   portions: Number(
+  offer.availableQuantity ?? offer.quantity ?? 0
+),
     pickup: pickupStart && pickupEnd
       ? `${formatPickupTime(pickupStart)} - ${formatPickupTime(pickupEnd)}`
       : 'À confirmer'
@@ -278,9 +285,25 @@ const displayedOffers = currentUser?.role === 'student'
   ? realOffers
   : offers
 
-const filteredOffers = displayedOffers.filter(
-  offer => activeCategory === 'Tous' || offer.category === activeCategory
-)
+const filteredOffers = displayedOffers
+  .filter(offer => {
+    const matchesCategory =
+      activeCategory === 'Tous' || offer.category === activeCategory
+
+    const matchesSearch =
+      (offer.name || '').toLowerCase().includes(searchTerm.toLowerCase())
+
+    return matchesCategory && matchesSearch
+  })
+  .sort((a, b) => {
+    const priceA = Number(a.price.replace(' DT', '').replace(',', '.'))
+    const priceB = Number(b.price.replace(' DT', '').replace(',', '.'))
+
+    if (sortOrder === 'asc') return priceA - priceB
+    if (sortOrder === 'desc') return priceB - priceA
+
+    return 0
+  })
 
   const totalPrice = selectedOffer
     ? (
@@ -309,12 +332,16 @@ const filteredOffers = displayedOffers.filter(
     setAuthError('')
     setAuthSuccess('')
 
-    setAuthForm({
-      fullName: '',
-      email: '',
-      password: '',
-      role: 'student'
-    })
+   setAuthForm({
+  fullName: '',
+  email: '',
+  password: '',
+  role: 'student',
+  shopName: '',
+  shopAddress: '',
+  shopPhone: '',
+  shopDescription: ''
+})
   }
 
   // Inscription et connexion
@@ -393,12 +420,49 @@ const fetchPlatformOffers = async () => {
     setPlatformOffersLoading(true)
 
     const response = await api.get('/api/offers')
-    setPlatformOffers(response.data.offers || [])
+   console.log(
+  'IMAGES DES OFFRES :',
+  JSON.stringify(
+    response.data.offers.map(offer => ({
+      name: offer.name,
+      imageURL: offer.imageURL,
+      imageUrl: offer.imageUrl
+    })),
+    null,
+    2
+  )
+)
+setPlatformOffers(response.data.offers || [])
   } catch (error) {
     console.error('Erreur chargement offres:', error)
     setPlatformOffers([])
   } finally {
     setPlatformOffersLoading(false)
+  }
+}
+// Charger les réservations de l'étudiant connecté
+const fetchMyReservations = async () => {
+  try {
+    const response = await api.get('/api/reservations/my-reservations')
+
+    const data = response.data.data || []
+
+    setReservations(data.map(reservation => ({
+  ...reservation,
+  id: reservation.reservationId,
+  name: reservation.offerName || 'Offre alimentaire',
+      location: reservation.shopName || '',
+      total: Number(reservation.totalPrice || 0),
+      pickup: '',
+      date: reservation.createdAt?._seconds
+  ? new Date(reservation.createdAt._seconds * 1000).toLocaleString('fr-FR')
+  : reservation.createdAt || '',
+      status: reservation.status
+    })))
+
+  } catch (error) {
+    console.error('Erreur chargement réservations:', error)
+    setReservations([])
   }
 }
   // Réinitialiser le formulaire
@@ -521,6 +585,14 @@ useEffect(() => {
     fetchPlatformOffers()
   }
 }, [currentUser])
+// Charger les réservations de l'étudiant connecté
+useEffect(() => {
+  if (currentUser?.role === 'student') {
+    fetchMyReservations()
+  } else {
+    setReservations([])
+  }
+}, [currentUser])
   // Déconnexion
   const handleLogout = () => {
     localStorage.removeItem('campussave_token')
@@ -534,56 +606,83 @@ useEffect(() => {
     setAuthError('')
     setAuthSuccess('')
   }
+const handleReservation = async () => {
+  console.log('BOUTON CONFIRMER CLIQUÉ')
+  if (reservationLoading) return
 
-  // Réservation étudiant
-  const handleReservation = () => {
-    if (!selectedOffer || quantity < 1 || quantity > selectedOffer.portions) {
-      return
-    }
+  setReservationError('')
 
-    if (!currentUser) {
-      setSelectedOffer(null)
-      openAuth('login')
-      setAuthError('Connectez-vous pour réserver un repas.')
-      return
-    }
-
-    if (currentUser.role !== 'student') {
-      return
-    }
-
-    const newReservation = {
-      id: Date.now(),
-      name: selectedOffer.name,
-      location: selectedOffer.location,
-      quantity,
-      total: totalPrice,
-      pickup: selectedOffer.pickup,
-      date: new Date().toLocaleString('fr-FR'),
-      status: 'Confirmée'
-    }
-
-    setReservations(previous => [newReservation, ...previous])
-    setSelectedOffer(null)
-    setReservationSuccess(true)
+  if (!selectedOffer || quantity < 1 || quantity > selectedOffer.portions) {
+    setReservationError('Quantité invalide ou stock insuffisant.')
+    return
   }
 
+  if (!currentUser) {
+    setSelectedOffer(null)
+    openAuth('login')
+    setAuthError('Connectez-vous pour réserver un repas.')
+    return
+  }
+
+  if (currentUser.role !== 'student') return
+
+  try {
+    setReservationLoading(true)
+
+    const response = await api.post('/api/reservations', {
+      offerId: selectedOffer.id,
+      quantity: Number(quantity)
+    })
+
+    if (!response.data.success) {
+      throw new Error(response.data.message || 'Réservation impossible.')
+    }
+
+    setSelectedOffer(null)
+    setQuantity(1)
+    setReservationSuccess(true)
+
+    await fetchMyReservations()
+    await fetchPlatformOffers()
+
+  } catch (error) {
+    console.error('Erreur réservation :', error)
+
+    setReservationError(
+      error.response?.data?.message ||
+      error.message ||
+      'Une erreur est survenue pendant la réservation.'
+    )
+  } finally {
+    setReservationLoading(false)
+  }
+}
   // Annuler une réservation
-  const handleCancelReservation = (reservationId) => {
+  const handleCancelReservation = async (reservationId) => {
     const confirmCancel = window.confirm(
       'Voulez-vous vraiment annuler cette réservation ?'
     )
 
     if (!confirmCancel) return
 
-    setReservations(previous =>
-      previous.map(reservation =>
-        reservation.id === reservationId
-          ? { ...reservation, status: 'Annulée' }
-          : reservation
+    try {
+      await api.put(`/api/reservations/${reservationId}/cancel`)
+
+      // Actualiser les réservations et les offres
+      await fetchMyReservations()
+      await fetchPlatformOffers()
+
+      window.alert('Réservation annulée avec succès.')
+    } catch (error) {
+      console.error('Erreur annulation réservation:', error)
+
+      window.alert(
+        error.response?.data?.message ||
+        'Impossible d’annuler cette réservation.'
       )
-    )
+    }
   }
+
 
   // Défilement vers une section
   const scrollTo = (id) => {
@@ -1389,7 +1488,27 @@ useEffect(() => {
             Des repas de qualité à petits prix, disponibles près de vous.
           </p>
         </div>
+<div className="offers-search">
+  <input
+    type="text"
+    placeholder="Rechercher un repas..."
+    value={searchTerm}
+    onChange={e => setSearchTerm(e.target.value)}
+  />
+</div>
+<div className="offers-sort">
+  <label htmlFor="sortOffers">Trier par prix :</label>
 
+  <select
+    id="sortOffers"
+    value={sortOrder}
+    onChange={e => setSortOrder(e.target.value)}
+  >
+    <option value="default">Ordre par défaut</option>
+    <option value="asc">Prix croissant</option>
+    <option value="desc">Prix décroissant</option>
+  </select>
+</div>
        <div className="category-filters">
   {[
     'Tous',
@@ -1507,39 +1626,43 @@ useEffect(() => {
             <div className="reservations-list">
               {reservations.map(reservation => (
                 <div
-                  className={`reservation-card ${
-                    reservation.status === 'Annulée'
-                      ? 'reservation-cancelled'
-                      : ''
-                  }`}
+                 className={`reservation-card ${
+  reservation.status === 'cancelled'
+    ? 'reservation-cancelled'
+    : ''
+}`}
                   key={reservation.id}
                 >
                   <div className="reservation-card-header">
                     <h3>{reservation.name}</h3>
 
                     <span
-                      className={`reservation-status ${
-                        reservation.status === 'Annulée'
-                          ? 'status-cancelled'
-                          : ''
-                      }`}
+                  className={`reservation-status ${
+  reservation.status === 'cancelled'
+    ? 'status-cancelled'
+    : ''
+}`}
                     >
-                      {reservation.status === 'Annulée' ? '✕' : '✓'}{' '}
-                      {reservation.status}
+                      {reservation.status === 'cancelled' ? '✕' : '✓'}{' '}
+{reservation.status === 'cancelled'
+  ? 'Annulée'
+  : reservation.status === 'pending'
+    ? 'En attente'
+    : reservation.status === 'completed'
+      ? 'Terminée'
+: reservation.status}
                     </span>
                   </div>
 
                   <p>📍 {reservation.location}</p>
-
                   <div className="reservation-card-details">
                     <span>📦 {reservation.quantity} portion(s)</span>
                     <strong>{reservation.total} DT</strong>
                   </div>
-
                   <p>🕒 Retrait : {reservation.pickup}</p>
                   <small>📅 {reservation.date}</small>
 
-                  {reservation.status === 'Confirmée' && (
+                  {reservation.status === 'pending' && (
                     <button
                       className="cancel-reservation-btn"
                       onClick={() =>
@@ -1550,11 +1673,11 @@ useEffect(() => {
                     </button>
                   )}
 
-                  {reservation.status === 'Annulée' && (
-                    <p className="cancelled-message">
-                      Cette réservation a été annulée.
-                    </p>
-                  )}
+                 {reservation.status === 'cancelled' && (
+  <p className="cancelled-message">
+    Cette réservation a été annulée.
+  </p>
+)}
                 </div>
               ))}
             </div>
@@ -1717,6 +1840,50 @@ useEffect(() => {
                     <option value="student">Étudiant</option>
                     <option value="merchant">Commerçant</option>
                   </select>
+                  {authForm.role === 'merchant' && (
+  <>
+    <h3>Informations de votre boutique</h3>
+
+    <label>Nom de la boutique</label>
+    <input
+      type="text"
+      name="shopName"
+      value={authForm.shopName}
+      onChange={handleAuthChange}
+      placeholder="Nom de votre boutique"
+      required
+    />
+
+    <label>Adresse de la boutique</label>
+    <input
+      type="text"
+      name="shopAddress"
+      value={authForm.shopAddress}
+      onChange={handleAuthChange}
+      placeholder="Adresse de votre boutique"
+      required
+    />
+
+    <label>Téléphone de la boutique</label>
+    <input
+      type="tel"
+      name="shopPhone"
+      value={authForm.shopPhone}
+      onChange={handleAuthChange}
+      placeholder="Exemple : 22123456"
+      required
+    />
+
+    <label>Description de la boutique</label>
+    <textarea
+      name="shopDescription"
+      value={authForm.shopDescription}
+      onChange={handleAuthChange}
+      placeholder="Présentez votre boutique"
+      rows={3}
+    />
+  </>
+)}
                 </>
               )}
 

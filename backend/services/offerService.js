@@ -3,11 +3,41 @@ const { db } = require("../config/firebase");
 
 const offersCollection = db.collection("offers");
 
-// Créer une offre
+// Créer une offre liée automatiquement à la boutique du commerçant
 const createOffer = async (offerData, merchantId) => {
+    const initialQuantity = Number(offerData.quantity);
+
+    if (
+        !Number.isInteger(initialQuantity) ||
+        initialQuantity <= 0
+    ) {
+        throw new Error("Invalid offer quantity.");
+    }
+
+    // Rechercher la boutique du commerçant
+    const shopsSnapshot = await db.collection("shops")
+        .where("ownerId", "==", merchantId)
+        .get();
+
+    if (shopsSnapshot.empty) {
+        throw new Error("MERCHANT_SHOP_NOT_FOUND");
+    }
+
+    const shopDoc = shopsSnapshot.docs[0];
+    const shop = shopDoc.data();
+
+    // Vérifier que la boutique est approuvée
+    if (shop.status !== "approved") {
+        throw new Error("SHOP_NOT_APPROVED");
+    }
+
     const offer = {
         ...offerData,
+        quantity: initialQuantity,
+        availableQuantity: initialQuantity,
         merchantId,
+        shopId: shopDoc.id,
+        shopName: shop.name,
         status: "active",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
@@ -20,7 +50,6 @@ const createOffer = async (offerData, merchantId) => {
         ...offer
     };
 };
-
 // Récupérer toutes les offres
 const getAllOffers = async () => {
     const snapshot = await offersCollection
@@ -59,52 +88,92 @@ const getOfferById = async (offerId) => {
     };
 };
 
+
 // Modifier une offre
 const updateOffer = async (offerId, merchantId, updateData) => {
     const docRef = offersCollection.doc(offerId);
-    const doc = await docRef.get();
 
-    if (!doc.exists) {
-        return null;
-    }
+    return await db.runTransaction(async (transaction) => {
+        const doc = await transaction.get(docRef);
 
-    const offer = doc.data();
-
-    if (offer.merchantId !== merchantId) {
-        throw new Error("FORBIDDEN");
-    }
-
-    const allowedFields = [
-        "title",
-        "description",
-        "category",
-        "originalPrice",
-        "discountedPrice",
-        "quantity",
-        "imageUrl",
-        "pickupStart",
-        "pickupEnd",
-        "address"
-    ];
-
-    const safeData = {};
-
-    allowedFields.forEach(field => {
-        if (updateData[field] !== undefined) {
-            safeData[field] = updateData[field];
+        if (!doc.exists) {
+            return null;
         }
+
+        const offer = doc.data();
+
+        if (offer.merchantId !== merchantId) {
+            throw new Error("FORBIDDEN");
+        }
+
+        const allowedFields = [
+            "title",
+            "description",
+            "category",
+            "originalPrice",
+            "discountedPrice",
+            "quantity",
+            "imageUrl",
+            "pickupStart",
+            "pickupEnd",
+            "address"
+        ];
+
+        const safeData = {};
+
+        allowedFields.forEach(field => {
+            if (updateData[field] !== undefined) {
+                safeData[field] = updateData[field];
+            }
+        });
+
+        if (safeData.quantity !== undefined) {
+            const newQuantity = Number(safeData.quantity);
+            const oldQuantity = Number(offer.quantity);
+            const oldAvailable = Number(
+                offer.availableQuantity ?? offer.quantity
+            );
+
+            if (
+                !Number.isInteger(newQuantity) ||
+                newQuantity <= 0
+            ) {
+                throw new Error("Invalid offer quantity.");
+            }
+
+            const reservedQuantity = oldQuantity - oldAvailable;
+
+            if (
+                !Number.isInteger(reservedQuantity) ||
+                reservedQuantity < 0
+            ) {
+                throw new Error("Invalid offer stock data.");
+            }
+
+            const newAvailable = newQuantity - reservedQuantity;
+
+            if (newAvailable < 0) {
+                throw new Error(
+                    "New quantity cannot be less than already reserved quantity."
+                );
+            }
+
+            safeData.quantity = newQuantity;
+            safeData.availableQuantity = newAvailable;
+        }
+
+        safeData.updatedAt = new Date().toISOString();
+
+        transaction.update(docRef, safeData);
+
+        return {
+            id: offerId,
+            ...offer,
+            ...safeData
+        };
     });
-
-    safeData.updatedAt = new Date().toISOString();
-
-    await docRef.update(safeData);
-
-    return {
-        id: offerId,
-        ...offer,
-        ...safeData
-    };
 };
+
 
 // Supprimer une offre
 const deleteOffer = async (offerId, merchantId, isAdmin = false) => {

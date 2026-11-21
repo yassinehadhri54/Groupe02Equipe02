@@ -70,8 +70,22 @@ const createOfferController = async (req, res) => {
             offer
         });
 
-    } catch (error) {
+       } catch (error) {
         console.error("Create offer error:", error);
+
+        if (error.message === "MERCHANT_SHOP_NOT_FOUND") {
+            return res.status(404).json({
+                success: false,
+                message: "Aucune boutique n'est associée à votre compte."
+            });
+        }
+
+        if (error.message === "SHOP_NOT_APPROVED") {
+            return res.status(403).json({
+                success: false,
+                message: "Votre boutique doit être approuvée avant de publier des offres."
+            });
+        }
 
         return res.status(500).json({
             success: false,

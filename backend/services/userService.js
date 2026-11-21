@@ -74,6 +74,7 @@ const updateUserProfile = async (uid, updateData) => {
     return await getUserById(uid);
 };
 
+
 // Approve merchant
 const approveMerchant = async (uid) => {
     const userRef = db.collection("users").doc(uid);
@@ -99,13 +100,37 @@ const approveMerchant = async (uid) => {
         throw error;
     }
 
-    await userRef.update({
+    // Rechercher la boutique du commerçant
+    const shopsSnapshot = await db.collection("shops")
+        .where("ownerId", "==", uid)
+        .get();
+
+    if (shopsSnapshot.empty) {
+        const error = new Error("Merchant shop not found.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    // Approuver le commerçant et sa boutique
+    const batch = db.batch();
+
+    batch.update(userRef, {
         status: "active",
         updatedAt: new Date()
     });
 
+    shopsSnapshot.docs.forEach(shopDoc => {
+        batch.update(shopDoc.ref, {
+            status: "approved",
+            updatedAt: new Date()
+        });
+    });
+
+    await batch.commit();
+
     return await getUserById(uid);
 };
+
 
 // Reject merchant
 const rejectMerchant = async (uid) => {
@@ -132,19 +157,33 @@ const rejectMerchant = async (uid) => {
         throw error;
     }
 
-    await userRef.update({
+    // Rechercher la boutique du commerçant
+    const shopsSnapshot = await db.collection("shops")
+        .where("ownerId", "==", uid)
+        .get();
+
+    if (shopsSnapshot.empty) {
+        const error = new Error("Merchant shop not found.");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    // Refuser le commerçant et sa boutique ensemble
+    const batch = db.batch();
+
+    batch.update(userRef, {
         status: "rejected",
         updatedAt: new Date()
     });
 
-    return await getUserById(uid);
-};
+    shopsSnapshot.docs.forEach(shopDoc => {
+        batch.update(shopDoc.ref, {
+            status: "rejected",
+            updatedAt: new Date()
+        });
+    });
 
-module.exports = {
-    getUserById,
-    updateUserProfile,
-    getAllUsers,
-    getPendingMerchants,
-    approveMerchant,
-    rejectMerchant
+    await batch.commit();
+
+    return await getUserById(uid);
 };
