@@ -1,0 +1,78 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CampusSave Register Test</title>
+</head>
+<body>
+
+    <h1>CampusSave - Register Test</h1>
+
+    <form id="registerForm">
+
+        <label>Full Name:</label>
+        <input type="text" id="fullName" required>
+        <br><br>
+
+        <label>Email:</label>
+        <input type="email" id="email" required>
+        <br><br>
+
+        <label>Password:</label>
+        <input type="password" id="password" required>
+        <br><br>
+
+        <label>Role:</label>
+        <select id="role">
+            <option value="student">Student</option>
+            <option value="merchant">Merchant</option>
+        </select>
+        <br><br>
+
+        <button type="submit">Register</button>
+
+    </form>
+
+    <h3>Result:</h3>
+    <pre id="result"></pre>
+
+    <script>
+        const form = document.getElementById("registerForm");
+
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+
+            const userData = {
+                fullName: document.getElementById("fullName").value,
+                email: document.getElementById("email").value,
+                password: document.getElementById("password").value,
+                role: document.getElementById("role").value
+            };
+
+            try {
+                const response = await fetch(
+                    "http://localhost:5000/api/auth/register",
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify(userData)
+                    }
+                );
+const responseText = await response.text();
+
+document.getElementById("result").textContent =
+    "Status: " + response.status + "\n\n" +
+    "Response:\n" + responseText;
+
+            } catch (error) {
+                document.getElementById("result").textContent =
+                    "Connection error: " + error.message;
+            }
+        });
+    </script>
+
+</body>
+</html>
