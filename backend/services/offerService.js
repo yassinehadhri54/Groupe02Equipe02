@@ -238,6 +238,16 @@ const getAllOffers = async (filters = {}) => {
     return offers;
 };
 
+// Récupérer toutes les offres pour l'administrateur.
+// Inclut les offres actives, expirées et supprimées.
+const getAllOffersForAdmin = async () => {
+    const snapshot = await offersCollection.get();
+
+    return snapshot.docs.map((doc) =>
+        normalizeOffer(doc.id, doc.data())
+    );
+};
+
 // Récupérer une offre par son identifiant.
 const getOfferById = async (offerId) => {
     const doc = await offersCollection.doc(offerId).get();
@@ -251,12 +261,30 @@ const getOfferById = async (offerId) => {
 
 // Récupérer les offres d'un commerçant.
 // Compatibilité avec ownerId et merchantId.
+// Les offres expirées restent visibles.
+// Les offres supprimées sont masquées.
 const getMyOffers = async (uid) => {
     const [ownerSnapshot, merchantSnapshot] = await Promise.all([
         offersCollection.where("ownerId", "==", uid).get(),
         offersCollection.where("merchantId", "==", uid).get()
     ]);
+console.log("UID DU COMMERÇANT :", uid);
 
+console.log(
+    "OFFRES TROUVÉES PAR ownerId :",
+    ownerSnapshot.docs.map(doc => ({
+        id: doc.id,
+        data: doc.data()
+    }))
+);
+
+console.log(
+    "OFFRES TROUVÉES PAR merchantId :",
+    merchantSnapshot.docs.map(doc => ({
+        id: doc.id,
+        data: doc.data()
+    }))
+);
     const offersById = new Map();
 
     [...ownerSnapshot.docs, ...merchantSnapshot.docs].forEach((doc) => {
@@ -266,7 +294,7 @@ const getMyOffers = async (uid) => {
         );
     });
 
-    return [...offersById.values()];
+return [...offersById.values()];
 };
 
 // Ancien nom conservé pour compatibilité.
@@ -290,6 +318,10 @@ const updateOffer = async (uid, offerId, updateData) => {
         }
 
         const current = normalizeOffer(offerDoc.id, rawCurrent);
+
+        if (current.status === "deleted") {
+            throw new Error("Cannot modify a deleted offer.");
+        }
 
         const cleanData = {};
 
@@ -446,7 +478,7 @@ const updateOffer = async (uid, offerId, updateData) => {
 };
 
 // Suppression logique : les réservations historiques restent intactes.
-// L'offre ne sera plus visible ni réservable.
+// L'offre ne sera plus visible ni réservable pour les étudiants.
 const deleteOffer = async (uid, offerId, isAdmin = false) => {
     const offerRef = offersCollection.doc(offerId);
 
@@ -458,8 +490,12 @@ const deleteOffer = async (uid, offerId, isAdmin = false) => {
         }
 
         const offer = offerDoc.data();
+// Empêcher la suppression d'une offre déjà supprimée.
+if (offer.status === "deleted") {
+    throw new Error("Offer is already deleted.");
+}
 
-        if (!isAdmin && getOfferOwnerId(offer) !== uid) {
+if (!isAdmin && getOfferOwnerId(offer) !== uid) {
             throw new Error("You are not allowed to delete this offer.");
         }
 
@@ -479,6 +515,7 @@ const deleteOffer = async (uid, offerId, isAdmin = false) => {
 module.exports = {
     createOffer,
     getAllOffers,
+    getAllOffersForAdmin,
     getOfferById,
     getMyOffers,
     getMerchantOffers,

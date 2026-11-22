@@ -47,7 +47,7 @@ const createOfferController = async (req, res) => {
     }
 };
 
-// Afficher toutes les offres disponibles.
+// Afficher toutes les offres disponibles (étudiants).
 const getAllOffersController = async (req, res) => {
     try {
         const {
@@ -114,6 +114,29 @@ const getAllOffersController = async (req, res) => {
         return res.status(500).json({
             success: false,
             message: "Could not retrieve offers."
+        });
+    }
+};
+
+// Afficher toutes les offres pour l'administrateur,
+// y compris les offres expirées et supprimées.
+const getAllOffersForAdminController = async (req, res) => {
+    try {
+        const offers = await offerService.getAllOffersForAdmin();
+
+        return res.status(200).json({
+            success: true,
+            count: offers.length,
+            data: offers,
+            offers
+        });
+
+    } catch (error) {
+        console.error("Get all offers for admin error:", error.message);
+
+        return res.status(500).json({
+            success: false,
+            message: "Could not retrieve all offers."
         });
     }
 };
@@ -241,9 +264,11 @@ const deleteOfferController = async (req, res) => {
     }
 };
 
+// Export des contrôleurs.
 module.exports = {
     createOfferController,
     getAllOffersController,
+    getAllOffersForAdminController,
     getOfferByIdController,
     getMyOffersController,
     updateOfferController,

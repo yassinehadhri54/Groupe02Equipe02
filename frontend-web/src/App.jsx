@@ -152,13 +152,19 @@ const [platformOffersLoading, setPlatformOffersLoading] = useState(false)
     }
   }
 
+
   // Charger les données lorsque l'admin se connecte
   useEffect(() => {
-    if (currentUser?.role === 'admin') {
-      fetchPendingMerchants()
-      fetchAllUsers()
-    }
+    const timeoutId = window.setTimeout(() => {
+      if (currentUser?.role === 'admin') {
+        fetchPendingMerchants()
+        fetchAllUsers()
+      }
+    }, 0)
+
+    return () => window.clearTimeout(timeoutId)
   }, [currentUser])
+
 
   // Approuver ou refuser un commerçant
   const handleMerchantAction = async (merchantId, action) => {
@@ -403,7 +409,10 @@ const filteredOffers = displayedOffers
       setOfferError('')
 
       const response = await api.get('/api/offers/my')
-
+console.log(
+  'OFFRES DU COMMERÇANT :',
+  JSON.stringify(response.data.offers, null, 2)
+)
       setMerchantOffers(response.data.offers || [])
     } catch (error) {
       setOfferError(
@@ -440,6 +449,24 @@ setPlatformOffers(response.data.offers || [])
     setPlatformOffersLoading(false)
   }
 }
+
+// Charger toutes les offres pour l'administrateur,
+// y compris les offres expirées et supprimées.
+const fetchAdminOffers = async () => {
+  try {
+    setPlatformOffersLoading(true)
+
+    const response = await api.get('/api/offers/admin/all')
+
+    setPlatformOffers(response.data.offers || [])
+  } catch (error) {
+    console.error('Erreur chargement offres administrateur:', error)
+    setPlatformOffers([])
+  } finally {
+    setPlatformOffersLoading(false)
+  }
+}
+
 // Charger les réservations de l'étudiant connecté
 const fetchMyReservations = async () => {
   try {
@@ -554,9 +581,9 @@ const fetchMyReservations = async () => {
       await api.delete(`/api/offers/${offerId}`)
 
       setOfferMessage('Offre supprimée avec succès.')
-      if (currentUser?.role === 'admin') {
-  await fetchPlatformOffers()
-} else {
+   if (currentUser?.role === 'admin') {
+  await fetchAdminOffers()
+} else if (currentUser?.role === 'merchant') {
   await fetchMerchantOffers()
 }
     } catch (error) {
@@ -569,29 +596,42 @@ const fetchMyReservations = async () => {
 
   // Charger les offres lorsque le commerçant est actif
   useEffect(() => {
+  const timeoutId = window.setTimeout(() => {
     if (
       currentUser?.role === 'merchant' &&
       currentUser?.status === 'active'
     ) {
       fetchMerchantOffers()
     }
-  }, [currentUser])
-// Charger les offres pour les étudiants et administrateurs
-useEffect(() => {
-  if (
-    currentUser?.role === 'student' ||
-    currentUser?.role === 'admin'
-  ) {
-    fetchPlatformOffers()
-  }
+  }, 0)
+
+  return () => window.clearTimeout(timeoutId)
 }, [currentUser])
+
+// Charger les offres selon le rôle connecté.
+useEffect(() => {
+  const timeoutId = window.setTimeout(() => {
+    if (currentUser?.role === 'admin') {
+      fetchAdminOffers()
+    } else if (currentUser?.role === 'student') {
+      fetchPlatformOffers()
+    }
+  }, 0)
+
+  return () => window.clearTimeout(timeoutId)
+}, [currentUser])
+
 // Charger les réservations de l'étudiant connecté
 useEffect(() => {
-  if (currentUser?.role === 'student') {
-    fetchMyReservations()
-  } else {
-    setReservations([])
-  }
+  const timeoutId = window.setTimeout(() => {
+    if (currentUser?.role === 'student') {
+      fetchMyReservations()
+    } else {
+      setReservations([])
+    }
+  }, 0)
+
+  return () => window.clearTimeout(timeoutId)
 }, [currentUser])
   // Déconnexion
   const handleLogout = () => {
@@ -787,7 +827,7 @@ const handleReservation = async () => {
           </div>
         </header>
 
-       
+
 <main className="role-dashboard">
   <div className="dashboard-heading">
     <span>ESPACE PROFESSIONNEL</span>
@@ -1047,23 +1087,60 @@ const handleReservation = async () => {
             </p>
             <p>Quantité : {offer.quantity}</p>
             <p>Adresse : {offer.address || 'Non renseignée'}</p>
-            <p>Statut : {offer.status}</p>
+           <p>
+  <strong>Statut :</strong>{' '}
+  <span
+    style={{
+      display: 'inline-block',
+      padding: '5px 12px',
+      borderRadius: '20px',
+      fontWeight: '600',
+      fontSize: '13px',
+      backgroundColor:
+        offer.status === 'deleted'
+          ? '#fee2e2'
+          : offer.isExpired
+            ? '#ffedd5'
+            : offer.isSoldOut
+              ? '#fef3c7'
+              : '#dcfce7',
+      color:
+        offer.status === 'deleted'
+          ? '#991b1b'
+          : offer.isExpired
+            ? '#c2410c'
+            : offer.isSoldOut
+              ? '#92400e'
+              : '#166534'
+    }}
+  >
+    {offer.status === 'deleted'
+      ? 'Supprimée'
+      : offer.isExpired
+        ? 'Expirée'
+        : offer.isSoldOut
+          ? 'Épuisée'
+          : 'Disponible'}
+  </span>
+</p>
 
-            <div className="admin-merchant-actions">
-              <button
-                className="confirm-reservation"
-                onClick={() => handleEditOffer(offer)}
-              >
-                Modifier
-              </button>
+           {offer.status !== 'deleted' && (
+  <div className="admin-merchant-actions">
+    <button
+      className="confirm-reservation"
+      onClick={() => handleEditOffer(offer)}
+    >
+      Modifier
+    </button>
 
-              <button
-                className="login-btn"
-                onClick={() => handleDeleteOffer(offer.id)}
-              >
-                Supprimer
-              </button>
-            </div>
+    <button
+      className="login-btn"
+      onClick={() => handleDeleteOffer(offer.id)}
+    >
+      Supprimer
+    </button>
+  </div>
+)}
           </div>
         ))}
       </div>
@@ -1140,7 +1217,7 @@ const handleReservation = async () => {
             </div>
           </div>
 
-          
+
           {/* Gestion des offres de la plateforme */}
           <section className="admin-merchants-section">
             <div className="section-heading">
@@ -1151,7 +1228,7 @@ const handleReservation = async () => {
               </p>
               <button
                 className="filter-btn"
-                onClick={fetchPlatformOffers}
+                onClick={fetchAdminOffers}
                 disabled={platformOffersLoading}
               >
                 {platformOffersLoading ? 'Chargement...' : 'Actualiser les offres'}
@@ -1180,8 +1257,46 @@ const handleReservation = async () => {
                   return (
                     <div className="reservation-card" key={offer.id}>
                       <div>
-                        <h3>{offer.title}</h3>
-                        <p>{offer.description}</p>
+                        <h3>{offer.title || offer.name}</h3>
+
+<p>{offer.description}</p>
+
+<p>
+  <strong>Statut :</strong>{' '}
+  <span
+    style={{
+      display: 'inline-block',
+      padding: '5px 12px',
+      borderRadius: '20px',
+      fontWeight: '600',
+      fontSize: '13px',
+      backgroundColor:
+        offer.status === 'deleted'
+          ? '#fee2e2'
+          : offer.isExpired
+            ? '#ffedd5'
+            : offer.isSoldOut
+              ? '#fef3c7'
+              : '#dcfce7',
+      color:
+        offer.status === 'deleted'
+          ? '#991b1b'
+          : offer.isExpired
+            ? '#c2410c'
+            : offer.isSoldOut
+              ? '#92400e'
+              : '#166534'
+    }}
+  >
+    {offer.status === 'deleted'
+      ? 'Supprimée'
+      : offer.isExpired
+        ? 'Expirée'
+        : offer.isSoldOut
+          ? 'Épuisée'
+          : 'Disponible'}
+  </span>
+</p>
                         <p>
                           <strong>Catégorie :</strong> {offer.category}
                         </p>
@@ -1210,13 +1325,14 @@ const handleReservation = async () => {
                           {offer.address || 'Non renseignée'}
                         </p>
                       </div>
-
-                      <button
-                        className="cancel-reservation-btn"
-                        onClick={() => handleDeleteOffer(offer.id)}
-                      >
-                        Supprimer l'offre
-                      </button>
+{offer.status !== 'deleted' && (
+  <button
+    className="cancel-reservation-btn"
+    onClick={() => handleDeleteOffer(offer.id)}
+  >
+    Supprimer l'offre
+  </button>
+)}
                     </div>
                   )
                 })}
@@ -1695,13 +1811,17 @@ const handleReservation = async () => {
         </section>
       )}
 
+
       {/* Modal réservation */}
       {selectedOffer && (
         <div className="modal-overlay">
           <div className="reservation-modal">
             <button
               className="modal-close"
-              onClick={() => setSelectedOffer(null)}
+              onClick={() => {
+                setSelectedOffer(null)
+                setReservationError('')
+              }}
             >
               ×
             </button>
@@ -1721,7 +1841,7 @@ const handleReservation = async () => {
               <div>
                 <button
                   onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                  disabled={quantity <= 1}
+                  disabled={quantity <= 1 || reservationLoading}
                 >
                   −
                 </button>
@@ -1734,7 +1854,9 @@ const handleReservation = async () => {
                       Math.min(selectedOffer.portions, quantity + 1)
                     )
                   }
-                  disabled={quantity >= selectedOffer.portions}
+                  disabled={
+                    quantity >= selectedOffer.portions || reservationLoading
+                  }
                 >
                   +
                 </button>
@@ -1746,11 +1868,27 @@ const handleReservation = async () => {
               <strong>{totalPrice} DT</strong>
             </div>
 
+            {reservationError && (
+              <p
+                role="alert"
+                style={{
+                  color: '#dc2626',
+                  marginTop: '12px',
+                  marginBottom: '12px'
+                }}
+              >
+                {reservationError}
+              </p>
+            )}
+
             <button
               className="confirm-reservation"
               onClick={handleReservation}
+              disabled={reservationLoading}
             >
-              Confirmer la réservation
+              {reservationLoading
+                ? 'Réservation en cours...'
+                : 'Confirmer la réservation'}
             </button>
           </div>
         </div>

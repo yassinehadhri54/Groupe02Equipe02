@@ -5,6 +5,7 @@ const router = express.Router();
 const {
     createOfferController,
     getAllOffersController,
+    getAllOffersForAdminController,
     getOfferByIdController,
     getMyOffersController,
     updateOfferController,
@@ -17,11 +18,19 @@ const {
     verifyActiveMerchant
 } = require("../middlewares/activeMerchantMiddleware");
 
-// Consulter toutes les offres.
+// Consulter toutes les offres disponibles (étudiants).
 router.get(
     "/",
     verifyToken,
     getAllOffersController
+);
+
+// Consulter toutes les offres, y compris expirées et supprimées (admin).
+router.get(
+    "/admin/all",
+    verifyToken,
+    verifyRole("admin"),
+    getAllOffersForAdminController
 );
 
 // Consulter les offres du commerçant connecté.
