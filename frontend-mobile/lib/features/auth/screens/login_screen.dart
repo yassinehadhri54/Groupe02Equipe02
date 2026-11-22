@@ -1,12 +1,17 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/network/auth_repository.dart';
 import '../../../core/widgets/main_navigation.dart';
+import '../../../features/merchant/screens/merchant_dashboard_screen.dart';
 import '../widgets/auth_screen_layout.dart';
+import 'account_status_screen.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.authRepository});
+
+  final AuthRepository? authRepository;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -18,6 +23,9 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
 
   bool _hidePassword = true;
+  bool _isLoading = false;
+  late final AuthRepository _authRepository =
+      widget.authRepository ?? AuthRepository();
 
   @override
   void dispose() {
@@ -26,12 +34,53 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _login() {
+  Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // Mode démonstration : aucune authentification réelle.
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute<void>(builder: (_) => const MainNavigation()),
+    setState(() => _isLoading = true);
+    try {
+      final session = await _authRepository.login(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+      );
+      await _authRepository.saveSession(session);
+      if (!mounted) return;
+      final destination = _destinationForSession(session);
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(builder: (_) => destination),
+      );
+    } on AuthException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Widget _destinationForSession(AuthSession session) {
+    final user = session.user;
+    if (user.role == 'student' && user.status == 'active') {
+      return MainNavigation(authRepository: _authRepository);
+    }
+    if (user.role == 'merchant' && user.status == 'active') {
+      return MerchantDashboardScreen();
+    }
+    if (user.role == 'merchant' && user.status == 'pending') {
+      return AccountStatusScreen(
+        title: 'Compte en attente',
+        message:
+            'Votre compte commerçant est en attente de validation par un administrateur.',
+        pending: true,
+        authRepository: _authRepository,
+      );
+    }
+    return AccountStatusScreen(
+      title: 'Accès refusé',
+      message:
+          'Votre compte est désactivé ou votre rôle n’est pas autorisé.',
+      authRepository: _authRepository,
     );
   }
 
@@ -41,8 +90,13 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _register() {
-    Navigator.of(context)
-        .push(MaterialPageRoute<void>(builder: (_) => const RegisterScreen()));
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => RegisterScreen(
+          authRepository: _authRepository,
+        ),
+      ),
+    );
   }
 
   InputDecoration _inputDecoration(
@@ -201,7 +255,7 @@ class _LoginScreenState extends State<LoginScreen> {
               height: 58,
               child: ElevatedButton(
                 key: const ValueKey('login-submit'),
-                onPressed: _login,
+                onPressed: _isLoading ? null : _login,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppTheme.burgundy,
                   foregroundColor: Colors.white,

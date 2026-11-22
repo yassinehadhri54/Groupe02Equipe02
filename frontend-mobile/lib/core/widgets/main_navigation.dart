@@ -1,13 +1,25 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../../features/bookings/screens/bookings_screen.dart';
+import '../../features/bookings/data/reservation_repository.dart';
 import '../../features/home/screens/home_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
 import '../../features/search/screens/search_screen.dart';
+import '../../features/search/data/shop_repository.dart';
 import '../theme/app_theme.dart';
+import '../network/auth_repository.dart';
 
 class MainNavigation extends StatefulWidget {
-  const MainNavigation({super.key});
+  const MainNavigation({
+    super.key,
+    this.authRepository,
+    this.offersRepository,
+    this.reservationRepository,
+  });
+
+  final AuthRepository? authRepository;
+  final ShopRepository? offersRepository;
+  final ReservationRepository? reservationRepository;
 
   @override
   State<MainNavigation> createState() => _MainNavigationState();
@@ -15,13 +27,14 @@ class MainNavigation extends StatefulWidget {
 
 class _MainNavigationState extends State<MainNavigation> {
   int _selectedIndex = 0;
-
-  static const List<Widget> _screens = [
-    HomeScreen(),
-    SearchScreen(),
-    BookingsScreen(),
-    ProfileScreen(),
-  ];
+  late final AuthRepository _authRepository =
+      widget.authRepository ?? AuthRepository();
+  late final ShopRepository _offersRepository =
+      widget.offersRepository ??
+      ShopRepository(authRepository: _authRepository);
+  late final ReservationRepository _reservationRepository =
+      widget.reservationRepository ??
+      ReservationRepository(authRepository: _authRepository);
 
   static const List<_NavigationItemData> _items = [
     _NavigationItemData(
@@ -52,8 +65,14 @@ class _MainNavigationState extends State<MainNavigation> {
 
   @override
   Widget build(BuildContext context) {
+    final screens = <Widget>[
+      HomeScreen(repository: _offersRepository),
+      SearchScreen(repository: _offersRepository),
+      BookingsScreen(repository: _reservationRepository),
+      ProfileScreen(authRepository: _authRepository),
+    ];
     return Scaffold(
-      body: IndexedStack(index: _selectedIndex, children: _screens),
+      body: IndexedStack(index: _selectedIndex, children: screens),
       bottomNavigationBar: SafeArea(
         top: false,
         child: SizedBox(

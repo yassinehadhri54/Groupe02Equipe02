@@ -1,12 +1,15 @@
-
 import 'package:material_ui/material_ui.dart';
 
+import '../../../core/network/auth_repository.dart';
 import '../../../core/theme/app_theme.dart';
+import '../data/reservation_repository.dart';
 import '../models/booking.dart';
 import 'booking_detail_screen.dart';
 
 class BookingsScreen extends StatefulWidget {
-  const BookingsScreen({super.key});
+  const BookingsScreen({super.key, this.repository});
+
+  final ReservationRepository? repository;
 
   @override
   State<BookingsScreen> createState() => _BookingsScreenState();
@@ -18,91 +21,48 @@ class _BookingsScreenState extends State<BookingsScreen> {
   static const Color cream = AppTheme.cream;
   static const Color ink = AppTheme.ink;
 
-  String selectedFilter = 'Toutes';
+  late final ReservationRepository _repository =
+      widget.repository ??
+      ReservationRepository(authRepository: AuthRepository());
 
-  final List<Booking> bookings = const [
-    Booking(
-      id: 'CS-1001',
-      name: 'Panier surprise',
-      restaurant: 'Cafétéria ESSECT',
-      image:
-      'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=600',
-      price: 5,
-      oldPrice: 12,
-      quantity: 1,
-      date: 'Aujourd’hui, 12:30',
-      pickup: 'À récupérer sur place',
-      address: 'Campus ESSECT, Avenue de la Liberté, Tunis',
-      instructions: 'Présente le code de retrait au comptoir de la cafétéria.',
-      status: 'En préparation',
-      pickupCode: 'DEMO-482731',
-    ),
-    Booking(
-      id: 'CS-1002',
-      name: 'Sandwich poulet',
-      restaurant: 'Snack Campus',
-      image:
-      'https://images.unsplash.com/photo-1553909489-cd47e0ef937f?w=600',
-      price: 3.5,
-      oldPrice: 7,
-      quantity: 2,
-      date: 'Aujourd’hui, 18:00',
-      pickup: 'À récupérer sur place',
-      address: 'Snack Campus, Avenue Hédi Nouira, Tunis',
-      instructions: 'Retire ta commande directement au comptoir.',
-      status: 'En cours',
-      pickupCode: 'DEMO-915204',
-    ),
-    Booking(
-      id: 'CS-1003',
-      name: 'Croissants',
-      restaurant: 'Boulangerie Campus',
-      image:
-      'https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=600',
-      price: 4,
-      oldPrice: 9,
-      quantity: 1,
-      date: 'Hier, 09:00',
-      pickup: 'Récupérée',
-      address: 'Boulangerie Campus, Rue de Marseille, Tunis',
-      instructions: 'Cette réservation a déjà été récupérée.',
-      status: 'Terminée',
-    ),
-    Booking(
-      id: 'CS-1004',
-      name: 'Pâtisseries du jour',
-      restaurant: 'Boulangerie Campus',
-      image:
-      'https://images.unsplash.com/photo-1488477181946-6428a0291777?w=600',
-      price: 4,
-      oldPrice: 9,
-      quantity: 2,
-      date: '10 janv., 16:00',
-      pickup: 'Commande annulée',
-      address: 'Boulangerie Campus, Rue de Marseille, Tunis',
-      instructions: 'Cette réservation a été annulée.',
-      status: 'Annulée',
-    ),
-  ];
+  String selectedFilter = 'Toutes';
+  List<Booking> bookings = const [];
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadReservations();
+  }
+
+  Future<void> _loadReservations() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final result = await _repository.fetchMyReservations();
+      if (mounted) setState(() => bookings = result);
+    } on ReservationException catch (error) {
+      if (mounted) setState(() => _errorMessage = error.message);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   List<Booking> get filteredBookings {
     if (selectedFilter == 'Toutes') return bookings;
-
-    if (selectedFilter == 'En cours') {
-      return bookings
-          .where(
-            (b) =>
-        b.status == 'En cours' ||
-            b.status == 'En préparation',
-      )
-          .toList();
-    }
-
-    if (selectedFilter == 'Terminées') {
-      return bookings.where((b) => b.status == 'Terminée').toList();
-    }
-
-    return bookings.where((b) => b.status == 'Annulée').toList();
+    final status = switch (selectedFilter) {
+      'En attente' => ReservationStatus.pending,
+      'Confirmées' => ReservationStatus.confirmed,
+      'Refusées' => ReservationStatus.rejected,
+      'Terminées' => ReservationStatus.completed,
+      'Annulées' => ReservationStatus.cancelled,
+      _ => ReservationStatus.unknown,
+    };
+    return bookings.where((booking) => booking.parsedStatus == status).toList();
   }
 
   @override
@@ -122,11 +82,20 @@ class _BookingsScreenState extends State<BookingsScreen> {
                 children: [
                   _buildFilters(),
                   const SizedBox(height: 24),
-                  if (filteredBookings.isEmpty)
+                  if (_isLoading)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 80),
+                      child: Center(
+                        child: CircularProgressIndicator(color: burgundy),
+                      ),
+                    )
+                  else if (_errorMessage != null)
+                    _buildErrorState()
+                  else if (filteredBookings.isEmpty)
                     _buildEmptyState()
                   else
                     ...filteredBookings.map(
-                          (booking) => Padding(
+                      (booking) => Padding(
                         padding: const EdgeInsets.only(bottom: 14),
                         child: _buildBookingCard(booking),
                       ),
@@ -146,11 +115,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
       padding: const EdgeInsets.fromLTRB(22, 55, 22, 28),
       decoration: const BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            Color(0xFF780000),
-            Color(0xFFAA0000),
-            Color(0xFF8F0401),
-          ],
+          colors: [Color(0xFF780000), Color(0xFFAA0000), Color(0xFF8F0401)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -166,10 +131,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
             children: [
               RichText(
                 text: const TextSpan(
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900,
-                  ),
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
                   children: [
                     TextSpan(
                       text: 'Campus',
@@ -190,9 +152,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                     onPressed: () {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text(
-                            'Notifications bientôt disponibles',
-                          ),
+                          content: Text('Notifications bientôt disponibles'),
                         ),
                       );
                     },
@@ -205,10 +165,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                   const Positioned(
                     right: 10,
                     top: 7,
-                    child: CircleAvatar(
-                      radius: 4,
-                      backgroundColor: gold,
-                    ),
+                    child: CircleAvatar(radius: 4, backgroundColor: gold),
                   ),
                 ],
               ),
@@ -232,10 +189,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                     SizedBox(height: 7),
                     Text(
                       'Suivez vos réservations et commandes.',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.white,
-                      ),
+                      style: TextStyle(fontSize: 13, color: Colors.white),
                     ),
                   ],
                 ),
@@ -263,7 +217,9 @@ class _BookingsScreenState extends State<BookingsScreen> {
   Widget _buildFilters() {
     const filters = [
       ('Toutes', Icons.inventory_2_outlined),
-      ('En cours', Icons.access_time_rounded),
+      ('En attente', Icons.hourglass_top_rounded),
+      ('Confirmées', Icons.check_circle_outline),
+      ('Refusées', Icons.block_outlined),
       ('Terminées', Icons.check_circle_outline),
       ('Annulées', Icons.cancel_outlined),
     ];
@@ -328,8 +284,8 @@ class _BookingsScreenState extends State<BookingsScreen> {
   }
 
   Widget _buildBookingCard(Booking booking) {
-    final statusColor = _statusColor(booking.status);
-    final statusBackground = _statusBackground(booking.status);
+    final statusColor = _statusColor(booking.parsedStatus);
+    final statusBackground = _statusBackground(booking.parsedStatus);
 
     return Material(
       color: Colors.white,
@@ -341,7 +297,11 @@ class _BookingsScreenState extends State<BookingsScreen> {
         onTap: () {
           Navigator.of(context).push(
             MaterialPageRoute<void>(
-              builder: (_) => BookingDetailScreen(booking: booking),
+              builder: (_) => BookingDetailScreen(
+                booking: booking,
+                repository: _repository,
+                onReservationChanged: _loadReservations,
+              ),
             ),
           );
         },
@@ -362,23 +322,17 @@ class _BookingsScreenState extends State<BookingsScreen> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(15),
-                    child: Image.network(
-                      booking.image,
-                      width: 94,
-                      height: 105,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => Container(
-                        width: 94,
-                        height: 105,
-                        color: cream,
-                        child: const Icon(
-                          Icons.restaurant_rounded,
-                          color: burgundy,
-                          size: 36,
-                        ),
-                      ),
+                  Container(
+                    width: 94,
+                    height: 105,
+                    decoration: BoxDecoration(
+                      color: cream,
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    child: const Icon(
+                      Icons.restaurant_rounded,
+                      color: burgundy,
+                      size: 36,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -396,123 +350,80 @@ class _BookingsScreenState extends State<BookingsScreen> {
                             color: ink,
                           ),
                         ),
+                        if (booking.restaurant != null) ...[
+                          const SizedBox(height: 5),
+                          Text(
+                            booking.restaurant!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF766B66),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 10),
+                        Text(
+                          '${booking.quantity} × ${_formatPrice(booking.unitPrice)}',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF645954),
+                          ),
+                        ),
                         const SizedBox(height: 5),
                         Text(
-                          booking.restaurant,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                          '${_formatPrice(booking.totalPrice)} au total',
                           style: const TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF766B66),
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                            color: burgundy,
                           ),
-                        ),
-                        const SizedBox(height: 10),
-                        Wrap(
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          spacing: 9,
-                          children: [
-                            Text(
-                              '${booking.price.toStringAsFixed(2)} DT',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w900,
-                                color: burgundy,
-                              ),
-                            ),
-                            Text(
-                              '${booking.oldPrice.toStringAsFixed(2)} DT',
-                              style: const TextStyle(
-                                decoration: TextDecoration.lineThrough,
-                                color: Colors.grey,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
                         ),
                         const SizedBox(height: 9),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 9,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: statusBackground,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                _statusIcon(booking.status),
-                                size: 14,
-                                color: statusColor,
+                        Wrap(
+                          spacing: 7,
+                          runSpacing: 6,
+                          children: [
+                            _statusPill(
+                              booking.statusLabel,
+                              statusColor,
+                              statusBackground,
+                            ),
+                            if (booking.paymentStatusLabel case final label?)
+                              _statusPill(
+                                'Paiement : $label',
+                                const Color(0xFF5F554F),
+                                cream,
                               ),
-                              const SizedBox(width: 5),
-                              Flexible(
-                                child: Text(
-                                  booking.status,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: statusColor,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
+                          ],
                         ),
                       ],
                     ),
                   ),
-                  const Icon(
-                    Icons.chevron_right_rounded,
-                    color: ink,
-                    size: 24,
-                  ),
+                  const Icon(Icons.chevron_right_rounded, color: ink, size: 24),
                 ],
               ),
               const SizedBox(height: 13),
-              const Divider(
-                height: 1,
-                color: Color(0xFFF0E8E0),
-              ),
+              const Divider(height: 1, color: Color(0xFFF0E8E0)),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  const Icon(
-                    Icons.calendar_month_outlined,
-                    size: 17,
-                    color: ink,
-                  ),
-                  const SizedBox(width: 5),
-                  Expanded(
-                    child: Text(
-                      booking.date,
+              if (booking.createdAtLabel case final date?)
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.calendar_month_outlined,
+                      size: 17,
+                      color: ink,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      date,
                       style: const TextStyle(
                         fontSize: 11,
                         color: Color(0xFF645954),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  const Icon(
-                    Icons.shopping_bag_outlined,
-                    size: 17,
-                    color: ink,
-                  ),
-                  const SizedBox(width: 5),
-                  Expanded(
-                    child: Text(
-                      booking.pickup,
-                      maxLines: 2,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Color(0xFF645954),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
             ],
           ),
         ),
@@ -520,48 +431,43 @@ class _BookingsScreenState extends State<BookingsScreen> {
     );
   }
 
-  Color _statusColor(String status) {
-    switch (status) {
-      case 'En préparation':
-        return const Color(0xFF14752A);
-      case 'En cours':
-        return const Color(0xFFE07800);
-      case 'Terminée':
-        return const Color(0xFF14752A);
-      case 'Annulée':
-        return const Color(0xFFC50000);
-      default:
-        return ink;
-    }
+  Color _statusColor(ReservationStatus status) => switch (status) {
+    ReservationStatus.pending => const Color(0xFFE07800),
+    ReservationStatus.confirmed ||
+    ReservationStatus.completed => const Color(0xFF14752A),
+    ReservationStatus.rejected ||
+    ReservationStatus.cancelled => const Color(0xFFC50000),
+    ReservationStatus.unknown => ink,
+  };
+
+  Color _statusBackground(ReservationStatus status) => switch (status) {
+    ReservationStatus.pending => const Color(0xFFFFF0C7),
+    ReservationStatus.confirmed ||
+    ReservationStatus.completed => const Color(0xFFE5F5D8),
+    ReservationStatus.rejected ||
+    ReservationStatus.cancelled => const Color(0xFFFFDEDE),
+    ReservationStatus.unknown => cream,
+  };
+
+  Widget _statusPill(String label, Color color, Color background) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
+    );
   }
 
-  Color _statusBackground(String status) {
-    switch (status) {
-      case 'En préparation':
-      case 'Terminée':
-        return const Color(0xFFE5F5D8);
-      case 'En cours':
-        return const Color(0xFFFFF0C7);
-      case 'Annulée':
-        return const Color(0xFFFFDEDE);
-      default:
-        return cream;
-    }
-  }
-
-  IconData _statusIcon(String status) {
-    switch (status) {
-      case 'En préparation':
-      case 'En cours':
-        return Icons.access_time_rounded;
-      case 'Terminée':
-        return Icons.check_circle_rounded;
-      case 'Annulée':
-        return Icons.cancel_rounded;
-      default:
-        return Icons.info_outline;
-    }
-  }
+  String _formatPrice(double amount) => '${amount.toStringAsFixed(3)} DT';
 
   Widget _buildEmptyState() {
     return Padding(
@@ -587,9 +493,35 @@ class _BookingsScreenState extends State<BookingsScreen> {
             'Tes réservations apparaîtront ici.',
             style: TextStyle(color: Colors.grey),
           ),
+          const SizedBox(height: 8),
+          TextButton(
+            key: const ValueKey('reservations-retry'),
+            onPressed: _loadReservations,
+            child: const Text('Réessayer'),
+          ),
         ],
       ),
     );
   }
 
+  Widget _buildErrorState() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 64),
+      child: Column(
+        children: [
+          Text(
+            _errorMessage ?? 'Impossible de charger les réservations.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: ink),
+          ),
+          const SizedBox(height: 8),
+          TextButton(
+            key: const ValueKey('reservations-retry'),
+            onPressed: _loadReservations,
+            child: const Text('Réessayer'),
+          ),
+        ],
+      ),
+    );
+  }
 }

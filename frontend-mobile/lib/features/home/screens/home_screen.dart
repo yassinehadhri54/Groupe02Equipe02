@@ -1,11 +1,15 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../../../core/network/auth_repository.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../offers/models/food_offer.dart';
+import '../../search/data/shop_repository.dart';
+import '../../search/models/shop_offer.dart';
 import '../../offers/screens/offer_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.repository});
+
+  final ShopRepository? repository;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -20,62 +24,47 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _searchController = TextEditingController();
   final PageController _bannerController = PageController();
 
+  late final ShopRepository _repository =
+      widget.repository ?? ShopRepository(authRepository: AuthRepository());
+
   String _searchQuery = '';
   String _selectedCategory = 'Toutes';
   int _bannerIndex = 0;
+  List<ShopOffer> _offers = const [];
+  bool _isLoading = true;
+  String? _errorMessage;
 
-  static const List<String> _categories = [
-    'Toutes',
-    'Paniers',
-    'Sandwichs',
-    'Pâtisseries',
-  ];
+  List<String> get _categories {
+    final categories =
+        _offers
+            .map((offer) => offer.category)
+            .whereType<String>()
+            .where((category) => category.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+    return ['Toutes', ...categories];
+  }
 
-  static const List<FoodOffer> _offers = [
-    FoodOffer(
-      name: 'Panier surprise',
-      shop: 'Cafétéria ESSECT',
-      imageUrl:
-          'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=1200',
-      price: 5,
-      oldPrice: 12,
-      category: 'Paniers',
-      description: 'Un assortiment de produits frais sélectionnés par la cafétéria, proposé à prix réduit pour éviter le gaspillage.',
-    ),
-    FoodOffer(
-      name: 'Sandwich frais',
-      shop: 'Snack Campus',
-      imageUrl:
-          'https://images.unsplash.com/photo-1553909489-cd47e0ef937f?w=1200',
-      price: 3.5,
-      oldPrice: 7,
-      category: 'Sandwichs',
-      description:
-          'Un sandwich préparé le jour même avec des ingrédients frais.',
-    ),
-    FoodOffer(
-      name: 'Pâtisseries du jour',
-      shop: 'Boulangerie Campus',
-      imageUrl:
-          'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=1200',
-      price: 4,
-      oldPrice: 9,
-      category: 'Pâtisseries',
-      description: 'Une sélection de pâtisseries préparées dans la journée et disponibles à tarif réduit.',
-    ),
-  ];
-
-  List<FoodOffer> get _filteredOffers {
+  List<ShopOffer> get _filteredOffers {
     return _offers.where((offer) {
       final matchesCategory =
           _selectedCategory == 'Toutes' || offer.category == _selectedCategory;
 
-      final searchText = '${offer.name} ${offer.shop} ${offer.category}'
-          .toLowerCase();
+      final searchText =
+          '${offer.name} ${offer.shopName ?? ''} ${offer.category ?? ''} '
+                  '${offer.description ?? ''}'
+              .toLowerCase();
 
       return matchesCategory &&
           searchText.contains(_searchQuery.trim().toLowerCase());
     }).toList();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadOffers();
   }
 
   @override
@@ -85,15 +74,37 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
+  Future<void> _loadOffers() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final offers = await _repository.fetchOffers();
+      if (!mounted) return;
+      setState(() => _offers = offers);
+    } on ShopRepositoryException catch (error) {
+      if (!mounted) return;
+      setState(() => _errorMessage = error.message);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   void _selectCategory(String category) {
     setState(() {
       _selectedCategory = category;
     });
   }
 
-  void _openOffer(FoodOffer offer) {
+  void _openOffer(ShopOffer offer) {
+    if (offer.id.isEmpty) return;
     Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(builder: (_) => OfferDetailScreen(offer: offer)),
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            OfferDetailScreen(offer: offer, repository: _repository),
+      ),
     );
   }
 
@@ -342,23 +353,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildPromoCarousel() {
     final compact = MediaQuery.sizeOf(context).width < 380;
-    const titles = [
-      'Mange bien,\ngaspille moins ! 🌍',
-      'Des paniers\nà petit prix !',
-      'Une pause\ngourmande !',
-    ];
-    const subtitles = [
-      "Jusqu'à -60% sur des repas près de ton campus.",
-      'Découvre les invendus de ton campus.',
-      'Des repas savoureux à prix réduits.',
-    ];
-    const labels = ['Offre du jour', 'Anti-gaspillage', 'À découvrir'];
-    const imageUrls = [
-      'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=800',
-      'https://images.unsplash.com/photo-1542838132-92c53300491e?w=800',
-      'https://images.unsplash.com/photo-1553909489-cd47e0ef937f?w=800',
-    ];
-    const fallbackImages = ['🥗', '🛍️', '🥪'];
+    final visibleOffers = _filteredOffers;
+    final bannerCount = visibleOffers.isEmpty ? 1 : visibleOffers.length;
 
     return Column(
       children: [
@@ -367,30 +363,44 @@ class _HomeScreenState extends State<HomeScreen> {
           child: PageView.builder(
             key: const ValueKey('promo-carousel'),
             controller: _bannerController,
-            itemCount: 3,
+            itemCount: bannerCount,
             onPageChanged: (index) {
               setState(() => _bannerIndex = index);
             },
-            itemBuilder: (context, index) => _PromoBanner(
-              key: ValueKey('promo-banner-$index'),
-              title: titles[index],
-              subtitle: subtitles[index],
-              label: labels[index],
-              imageUrl: imageUrls[index],
-              fallbackImage: fallbackImages[index],
-              compact: compact,
-              onDiscover: () {
-                _selectCategory('Toutes');
-                _showMessage('Découvre les offres disponibles ci-dessous.');
-              },
-            ),
+            itemBuilder: (context, index) {
+              if (visibleOffers.isEmpty) {
+                return _PromoBanner(
+                  key: const ValueKey('promo-banner-empty'),
+                  title: 'Mange bien,\ngaspille moins !',
+                  subtitle: 'Les offres disponibles apparaîtront ici.',
+                  label: 'CampusSave',
+                  imageUrl: '',
+                  fallbackImage: '🌱',
+                  compact: compact,
+                  onDiscover: () =>
+                      _showMessage('Aucune offre disponible pour le moment.'),
+                );
+              }
+
+              final offer = visibleOffers[index];
+              return _PromoBanner(
+                key: ValueKey('promo-banner-${offer.id}'),
+                title: offer.name,
+                subtitle: offer.description ?? '',
+                label: offer.category ?? 'Offre',
+                imageUrl: offer.imageUrl ?? '',
+                fallbackImage: '',
+                compact: compact,
+                onDiscover: () => _openOffer(offer),
+              );
+            },
           ),
         ),
         const SizedBox(height: 16),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: List.generate(
-            3,
+            bannerCount,
             (index) => AnimatedContainer(
               duration: const Duration(milliseconds: 250),
               margin: const EdgeInsets.symmetric(horizontal: 4),
@@ -410,15 +420,18 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildCategoryShortcuts() {
-    const items = [
-      ('Paniers', Icons.shopping_basket_outlined, burgundy),
-      ('Sandwichs', Icons.lunch_dining_outlined, Color(0xFFDF6514)),
-      ('Pâtisseries', Icons.cake_outlined, burgundy),
-      ('Boissons', Icons.local_drink_outlined, Color(0xFF348A31)),
+    final categories = _categories.skip(1).take(4).toList();
+    if (categories.isEmpty) return const SizedBox.shrink();
+    const icons = [
+      Icons.shopping_basket_outlined,
+      Icons.lunch_dining_outlined,
+      Icons.cake_outlined,
+      Icons.local_offer_outlined,
     ];
 
     return Row(
-      children: items.map((item) {
+      children: List.generate(categories.length, (index) {
+        final category = categories[index];
         return Expanded(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 3),
@@ -429,24 +442,24 @@ class _HomeScreenState extends State<HomeScreen> {
               borderRadius: BorderRadius.circular(22),
               child: InkWell(
                 borderRadius: BorderRadius.circular(22),
-                onTap: () {
-                  if (item.$1 == 'Boissons') {
-                    _showMessage('Aucune boisson disponible actuellement.');
-                  } else {
-                    _selectCategory(item.$1);
-                  }
-                },
+                onTap: () => _selectCategory(category),
                 child: SizedBox(
                   height: 105,
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(item.$2, color: item.$3, size: 33),
+                      Icon(
+                        icons[index],
+                        color: index.isEven
+                            ? burgundy
+                            : const Color(0xFFDF6514),
+                        size: 33,
+                      ),
                       const SizedBox(height: 10),
                       FittedBox(
                         fit: BoxFit.scaleDown,
                         child: Text(
-                          item.$1,
+                          category,
                           style: const TextStyle(
                             color: ink,
                             fontSize: 12,
@@ -547,7 +560,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildOffers(List<FoodOffer> offers) {
+  Widget _buildOffers(List<ShopOffer> offers) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -570,10 +583,47 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         const SizedBox(height: 17),
-        if (offers.isEmpty)
+        if (_isLoading)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 35),
-            child: Center(child: Text('Aucune offre trouvée.')),
+            child: Center(child: CircularProgressIndicator(color: burgundy)),
+          )
+        else if (_errorMessage != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            child: Center(
+              child: Column(
+                children: [
+                  Text(_errorMessage!, textAlign: TextAlign.center),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    key: const ValueKey('home-retry'),
+                    onPressed: _loadOffers,
+                    child: const Text('Réessayer'),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else if (offers.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 28),
+            child: Center(
+              child: Column(
+                children: [
+                  const Text(
+                    'Aucune offre disponible pour le moment.',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    key: const ValueKey('home-retry'),
+                    onPressed: _loadOffers,
+                    child: const Text('Réessayer'),
+                  ),
+                ],
+              ),
+            ),
           )
         else
           SizedBox(
@@ -644,7 +694,7 @@ class _HomeScreenState extends State<HomeScreen> {
 class _HomeOfferCard extends StatefulWidget {
   const _HomeOfferCard({super.key, required this.offer, required this.onTap});
 
-  final FoodOffer offer;
+  final ShopOffer offer;
   final VoidCallback onTap;
 
   @override
@@ -658,9 +708,12 @@ class _HomeOfferCardState extends State<_HomeOfferCard> {
   Widget build(BuildContext context) {
     final offer = widget.offer;
 
-    final discount = offer.oldPrice > 0
-        ? ((1 - offer.price / offer.oldPrice) * 100).round().clamp(0, 100)
-        : 0;
+    final originalPrice = offer.originalPrice;
+    final discountPrice = offer.discountPrice;
+    final discount =
+        originalPrice != null && discountPrice != null && originalPrice > 0
+        ? ((1 - discountPrice / originalPrice) * 100).round().clamp(0, 100)
+        : null;
 
     return Material(
       color: Colors.white,
@@ -678,10 +731,8 @@ class _HomeOfferCardState extends State<_HomeOfferCard> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  Image.network(
-                    offer.imageUrl,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => const ColoredBox(
+                  if (offer.imageUrl == null)
+                    const ColoredBox(
                       color: Color(0xFFF1E6DC),
                       child: Center(
                         child: Icon(
@@ -690,30 +741,45 @@ class _HomeOfferCardState extends State<_HomeOfferCard> {
                           color: Color(0xFF8F0401),
                         ),
                       ),
-                    ),
-                  ),
-                  Positioned(
-                    top: 10,
-                    right: 10,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 11,
-                        vertical: 7,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFB00000),
-                        borderRadius: BorderRadius.circular(25),
-                      ),
-                      child: Text(
-                        '-$discount%',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 13,
+                    )
+                  else
+                    Image.network(
+                      offer.imageUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => const ColoredBox(
+                        color: Color(0xFFF1E6DC),
+                        child: Center(
+                          child: Icon(
+                            Icons.restaurant_rounded,
+                            size: 45,
+                            color: Color(0xFF8F0401),
+                          ),
                         ),
                       ),
                     ),
-                  ),
+                  if (discount != null)
+                    Positioned(
+                      top: 10,
+                      right: 10,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 11,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFB00000),
+                          borderRadius: BorderRadius.circular(25),
+                        ),
+                        child: Text(
+                          '-$discount%',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ),
                   Positioned(
                     top: 7,
                     left: 7,
@@ -740,14 +806,15 @@ class _HomeOfferCardState extends State<_HomeOfferCard> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      offer.category.toUpperCase(),
-                      style: const TextStyle(
-                        color: Color(0xFFDC7C00),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
+                    if (offer.category != null)
+                      Text(
+                        offer.category!.toUpperCase(),
+                        style: const TextStyle(
+                          color: Color(0xFFDC7C00),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
-                    ),
                     const SizedBox(height: 5),
                     Text(
                       offer.name,
@@ -760,35 +827,40 @@ class _HomeOfferCardState extends State<_HomeOfferCard> {
                       ),
                     ),
                     const SizedBox(height: 5),
-                    Text(
-                      offer.shop,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF77716E),
-                        fontSize: 12,
+                    if (offer.shopName != null)
+                      Text(
+                        offer.shopName!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF77716E),
+                          fontSize: 12,
+                        ),
                       ),
-                    ),
                     const Spacer(),
                     Row(
                       children: [
                         Text(
-                          '${offer.price.toStringAsFixed(2)} DT',
+                          discountPrice == null
+                              ? 'Prix indisponible'
+                              : '${discountPrice.toStringAsFixed(3)} DT',
                           style: const TextStyle(
                             color: Color(0xFF8F0401),
                             fontSize: 15,
                             fontWeight: FontWeight.w900,
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Text(
-                          offer.oldPrice.toStringAsFixed(2),
-                          style: const TextStyle(
-                            color: Color(0xFF99908B),
-                            fontSize: 11,
-                            decoration: TextDecoration.lineThrough,
+                        if (originalPrice != null) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            originalPrice.toStringAsFixed(3),
+                            style: const TextStyle(
+                              color: Color(0xFF99908B),
+                              fontSize: 11,
+                              decoration: TextDecoration.lineThrough,
+                            ),
                           ),
-                        ),
+                        ],
                       ],
                     ),
                   ],
@@ -821,6 +893,21 @@ class _PromoBanner extends StatelessWidget {
   final String fallbackImage;
   final bool compact;
   final VoidCallback onDiscover;
+
+  Widget _imageFallback(double diameter) {
+    return ColoredBox(
+      color: const Color(0xFFF2E6D8),
+      child: Center(
+        child: fallbackImage.isEmpty
+            ? Icon(
+                Icons.restaurant_rounded,
+                size: diameter * 0.48,
+                color: AppTheme.burgundy,
+              )
+            : Text(fallbackImage, style: TextStyle(fontSize: diameter * 0.48)),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -939,23 +1026,15 @@ class _PromoBanner extends StatelessWidget {
                               child: Stack(
                                 fit: StackFit.expand,
                                 children: [
-                                  Image.network(
-                                    imageUrl,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      return ColoredBox(
-                                        color: const Color(0xFFF2E6D8),
-                                        child: Center(
-                                          child: Text(
-                                            fallbackImage,
-                                            style: TextStyle(
-                                              fontSize: diameter * 0.48,
-                                            ),
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
+                                  if (imageUrl.trim().isEmpty)
+                                    _imageFallback(diameter)
+                                  else
+                                    Image.network(
+                                      imageUrl,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, _, _) =>
+                                          _imageFallback(diameter),
+                                    ),
                                   const DecoratedBox(
                                     decoration: BoxDecoration(
                                       gradient: RadialGradient(

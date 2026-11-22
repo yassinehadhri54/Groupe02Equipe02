@@ -1,8 +1,14 @@
 
+import '../../../core/network/auth_repository.dart';
 import 'package:material_ui/material_ui.dart';
+import '../../offers/screens/offer_detail_screen.dart';
+import '../data/shop_repository.dart';
+import '../models/shop_offer.dart';
 
 class SearchScreen extends StatefulWidget {
-  const SearchScreen({super.key});
+  const SearchScreen({super.key, this.repository});
+
+  final ShopRepository? repository;
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -15,98 +21,81 @@ class _SearchScreenState extends State<SearchScreen> {
   static const ink = Color(0xFF292323);
 
   final _searchController = TextEditingController();
+  final _maxPriceController = TextEditingController();
+  late final ShopRepository _repository =
+      widget.repository ??
+      ShopRepository(authRepository: AuthRepository());
 
   String _query = '';
   String _category = 'Tous';
-  bool _openOnly = false;
-  bool _sortByRating = false;
+  double? _maxPrice;
+  List<ShopOffer> _offers = const [];
+  List<String> _categories = const ['Tous'];
+  bool _isLoading = true;
+  String? _errorMessage;
 
-  static const _categories = [
-    'Tous',
-    'Cafétérias',
-    'Snacks',
-    'Boulangeries',
-  ];
-
-  static const List<_Restaurant> _restaurants = [
-    _Restaurant(
-      name: 'Cafétéria ESSECT',
-      type: 'Cafétéria',
-      category: 'Cafétérias',
-      distance: 150,
-      rating: 4.8,
-      reviews: 127,
-      open: true,
-      image:
-      'https://images.unsplash.com/photo-1552566626-52f8b828add9?w=800',
-      description:
-      'Découvre les repas, paniers et invendus proposés par la cafétéria du campus.',
-    ),
-    _Restaurant(
-      name: 'Snack Campus',
-      type: 'Snack',
-      category: 'Snacks',
-      distance: 320,
-      rating: 4.6,
-      reviews: 89,
-      open: true,
-      image:
-      'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800',
-      description:
-      'Sandwichs, repas rapides et offres anti-gaspillage à petit prix.',
-    ),
-    _Restaurant(
-      name: 'Boulangerie Campus',
-      type: 'Boulangerie',
-      category: 'Boulangeries',
-      distance: 450,
-      rating: 4.9,
-      reviews: 54,
-      open: false,
-      image:
-      'https://images.unsplash.com/photo-1608198093002-ad4e005484df?w=800',
-      description:
-      'Pains, viennoiseries et pâtisseries du jour à prix réduits.',
-    ),
-  ];
-
-  List<_Restaurant> get _results {
+  List<ShopOffer> get _results {
     final normalized = _query.trim().toLowerCase();
-
-    final result = _restaurants.where((restaurant) {
-      final matchesText =
-      '${restaurant.name} ${restaurant.type} ${restaurant.description}'
-          .toLowerCase()
-          .contains(normalized);
-
-      final matchesCategory = _category == 'Tous' ||
-          restaurant.category == _category;
-
-      return matchesText &&
-          matchesCategory &&
-          (!_openOnly || restaurant.open);
+    return _offers.where((offer) {
+      final text =
+          '${offer.name} ${offer.shopName ?? ''} ${offer.category ?? ''} '
+                  '${offer.description ?? ''}'
+              .toLowerCase();
+      return text.contains(normalized) &&
+          (_maxPrice == null ||
+              (offer.discountPrice != null &&
+                  offer.discountPrice! <= _maxPrice!));
     }).toList();
+  }
 
-    if (_sortByRating) {
-      result.sort((a, b) => b.rating.compareTo(a.rating));
-    } else {
-      result.sort((a, b) => a.distance.compareTo(b.distance));
-    }
-
-    return result;
+  @override
+  void initState() {
+    super.initState();
+    _loadOffers();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _maxPriceController.dispose();
     super.dispose();
   }
 
+  Future<void> _loadOffers({String? query}) async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final offers = await _repository.fetchOffers(
+        category: _category == 'Tous' ? null : _category,
+        maxPrice: _maxPrice,
+        query: query ?? (_query.trim().isEmpty ? null : _query.trim()),
+      );
+      if (!mounted) return;
+      final categories = <String>{
+        ..._categories.skip(1),
+        ...offers.map((offer) => offer.category).whereType<String>(),
+      }.toList()..sort();
+      setState(() {
+        _offers = offers;
+        _categories = ['Tous', ...categories];
+      });
+    } on ShopRepositoryException catch (error) {
+      if (!mounted) return;
+      setState(() => _errorMessage = error.message);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
   void _selectCategory(String category) {
     setState(() => _category = category);
+    _loadOffers(query: _query);
   }
 
   void _showFilters() {
+    _maxPriceController.text = _maxPrice?.toString() ?? '';
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: cream,
@@ -123,7 +112,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Filtrer les restaurants',
+                      'Filtrer les offres',
                       style: TextStyle(
                         fontSize: 23,
                         fontWeight: FontWeight.w900,
@@ -131,38 +120,39 @@ class _SearchScreenState extends State<SearchScreen> {
                       ),
                     ),
                     const SizedBox(height: 18),
-                    SwitchListTile(
-                      title: const Text('Ouverts uniquement'),
-                      subtitle: const Text(
-                        'Afficher les commerces ouverts',
+                    TextField(
+                      key: const ValueKey('offer-max-price'),
+                      controller: _maxPriceController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
                       ),
-                      activeThumbColor: burgundy,
-                      value: _openOnly,
-                      onChanged: (value) {
-                        updateSheet(() {
-                          setState(() => _openOnly = value);
-                        });
-                      },
-                    ),
-                    SwitchListTile(
-                      title: const Text('Meilleures notes'),
-                      subtitle: const Text(
-                        'Trier par note décroissante',
+                      decoration: const InputDecoration(
+                        labelText: 'Prix maximum (DT)',
                       ),
-                      activeThumbColor: burgundy,
-                      value: _sortByRating,
-                      onChanged: (value) {
-                        updateSheet(() {
-                          setState(() => _sortByRating = value);
-                        });
-                      },
                     ),
                     const SizedBox(height: 16),
                     SizedBox(
                       width: double.infinity,
                       height: 52,
                       child: ElevatedButton(
-                        onPressed: () => Navigator.pop(sheetContext),
+                        onPressed: () {
+                          final input = _maxPriceController.text.trim();
+                          final price = input.isEmpty
+                              ? null
+                              : double.tryParse(input.replaceAll(',', '.'));
+                          if (input.isNotEmpty &&
+                              (price == null || price < 0)) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Saisis un prix valide.'),
+                              ),
+                            );
+                            return;
+                          }
+                          setState(() => _maxPrice = price);
+                          Navigator.pop(sheetContext);
+                          _loadOffers(query: _query);
+                        },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: burgundy,
                           foregroundColor: Colors.white,
@@ -186,11 +176,12 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  void _openRestaurant(_Restaurant restaurant) {
+  void _openOffer(ShopOffer offer) {
     Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (_) => _RestaurantDetailScreen(
-          restaurant: restaurant,
+        builder: (_) => OfferDetailScreen(
+          offer: offer,
+          repository: _repository,
         ),
       ),
     );
@@ -225,14 +216,25 @@ class _SearchScreenState extends State<SearchScreen> {
                           const SizedBox(height: 30),
                           _buildSectionTitle(results.length),
                           const SizedBox(height: 16),
-                          if (results.isEmpty)
+                          if (_isLoading)
+                            const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(32),
+                                child: CircularProgressIndicator(
+                                  color: burgundy,
+                                ),
+                              ),
+                            )
+                          else if (_errorMessage != null)
+                            _buildErrorState()
+                          else if (results.isEmpty)
                             _buildEmptyState()
                           else
                             ...results.map(
-                                  (restaurant) => Padding(
+                                  (offer) => Padding(
                                 padding:
                                 const EdgeInsets.only(bottom: 14),
-                                child: _buildRestaurantCard(restaurant),
+                                child: _buildOfferCard(offer),
                               ),
                             ),
                         ],
@@ -308,9 +310,9 @@ class _SearchScreenState extends State<SearchScreen> {
               const Text.rich(
                 TextSpan(
                   children: [
-                    TextSpan(text: 'Trouve un '),
+                    TextSpan(text: 'Trouve une '),
                     TextSpan(
-                      text: 'restaurant',
+                      text: 'offre',
                       style: TextStyle(color: burgundy),
                     ),
                     TextSpan(text: '\nsur ton campus'),
@@ -325,7 +327,7 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
               const SizedBox(height: 12),
               Text(
-                'Recherche une cafétéria, un snack ou une boulangerie près de toi.',
+                'Recherche des repas et produits réellement proposés près de toi.',
                 style: TextStyle(
                   fontSize: 13,
                   height: 1.5,
@@ -376,12 +378,14 @@ class _SearchScreenState extends State<SearchScreen> {
               onChanged: (value) {
                 setState(() => _query = value);
               },
+              onSubmitted: (value) => _loadOffers(query: value),
+              textInputAction: TextInputAction.search,
               style: const TextStyle(
                 color: ink,
                 fontSize: 14,
               ),
               decoration: InputDecoration(
-                hintText: 'Rechercher un restaurant...',
+                hintText: 'Rechercher une offre alimentaire...',
                 hintStyle: const TextStyle(
                   fontSize: 12,
                   color: Color(0xFF918984),
@@ -397,6 +401,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   onPressed: () {
                     _searchController.clear();
                     setState(() => _query = '');
+                    _loadOffers(query: '');
                   },
                   icon: const Icon(Icons.close_rounded),
                 )
@@ -453,14 +458,18 @@ class _SearchScreenState extends State<SearchScreen> {
       Icons.bakery_dining_outlined,
     ];
 
-    return Row(
-      children: List.generate(_categories.length, (index) {
-        final category = _categories[index];
-        final selected = _category == category;
+    return SizedBox(
+      height: 92,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _categories.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 7),
+        itemBuilder: (context, index) {
+          final category = _categories[index];
+          final selected = _category == category;
 
-        return Expanded(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 3),
+          return SizedBox(
+            width: 88,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 250),
               decoration: BoxDecoration(
@@ -479,43 +488,40 @@ class _SearchScreenState extends State<SearchScreen> {
                 child: InkWell(
                   borderRadius: BorderRadius.circular(23),
                   onTap: () => _selectCategory(category),
-                  child: SizedBox(
-                    height: 92,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 2),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            icons[index],
-                            size: 28,
-                            color: selected
-                                ? Colors.white
-                                : const Color(0xFFE36B10),
-                          ),
-                          const SizedBox(height: 9),
-                          FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(
-                              category,
-                              maxLines: 1,
-                              style: TextStyle(
-                                color: selected ? Colors.white : ink,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                              ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          icons[index % icons.length],
+                          size: 28,
+                          color: selected
+                              ? Colors.white
+                              : const Color(0xFFE36B10),
+                        ),
+                        const SizedBox(height: 9),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            category,
+                            maxLines: 1,
+                            style: TextStyle(
+                              color: selected ? Colors.white : ink,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-        );
-      }),
+          );
+        },
+      ),
     );
   }
 
@@ -524,7 +530,7 @@ class _SearchScreenState extends State<SearchScreen> {
       children: [
         const Expanded(
           child: Text(
-            'Restaurants à proximité',
+            'Offres alimentaires',
             style: TextStyle(
               color: ink,
               fontSize: 21,
@@ -532,33 +538,38 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           ),
         ),
+        Text(
+          '$count',
+          style: const TextStyle(
+            color: Color(0xFF746B66),
+            fontSize: 12,
+          ),
+        ),
         const SizedBox(width: 5),
         PopupMenuButton<String>(
-          tooltip: 'Trier les restaurants',
+          tooltip: 'Filtrer les offres par prix',
           onSelected: (value) {
-            setState(() => _sortByRating = value == 'rating');
+            if (value == 'price') _showFilters();
           },
           itemBuilder: (_) => const [
             PopupMenuItem(
-              value: 'distance',
-              child: Text('Distance'),
-            ),
-            PopupMenuItem(
-              value: 'rating',
-              child: Text('Meilleures notes'),
+              value: 'price',
+              child: Text('Prix maximum'),
             ),
           ],
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               const Icon(
-                Icons.location_on_outlined,
+                Icons.tune_rounded,
                 color: burgundy,
                 size: 18,
               ),
               const SizedBox(width: 3),
               Text(
-                _sortByRating ? 'Mieux notés' : 'Près de toi',
+                _maxPrice == null
+                    ? 'Filtres'
+                    : '≤ ${_maxPrice!.toStringAsFixed(2)} DT',
                 style: const TextStyle(
                   color: burgundy,
                   fontSize: 11,
@@ -577,15 +588,17 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  Widget _buildRestaurantCard(_Restaurant restaurant) {
+  Widget _buildOfferCard(ShopOffer offer) {
+    final price = offer.discountPrice;
     return Material(
+      key: ValueKey('search-offer-${offer.id}'),
       color: Colors.white,
       elevation: 3,
       shadowColor: burgundy.withValues(alpha: 0.11),
       borderRadius: BorderRadius.circular(23),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () => _openRestaurant(restaurant),
+        onTap: () => _openOffer(offer),
         child: Padding(
           padding: const EdgeInsets.all(11),
           child: Row(
@@ -595,18 +608,27 @@ class _SearchScreenState extends State<SearchScreen> {
                 child: SizedBox(
                   width: 103,
                   height: 105,
-                  child: Image.network(
-                    restaurant.image,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => Container(
+                  child: offer.imageUrl == null
+                      ? Container(
                       color: const Color(0xFFF3E8DD),
                       child: const Icon(
-                        Icons.storefront_rounded,
+                        Icons.restaurant_rounded,
                         size: 42,
                         color: burgundy,
                       ),
-                    ),
-                  ),
+                    )
+                      : Image.network(
+                          offer.imageUrl!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => Container(
+                            color: const Color(0xFFF3E8DD),
+                            child: const Icon(
+                              Icons.restaurant_rounded,
+                              size: 42,
+                              color: burgundy,
+                            ),
+                          ),
+                        ),
                 ),
               ),
               const SizedBox(width: 12),
@@ -615,7 +637,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      restaurant.name,
+                      offer.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -626,41 +648,37 @@ class _SearchScreenState extends State<SearchScreen> {
                     ),
                     const SizedBox(height: 7),
                     Text(
-                      '${restaurant.type} • ${restaurant.distance} m',
+                      [
+                        if (offer.category != null) offer.category!,
+                        if (offer.availableQuantity != null)
+                          '${offer.availableQuantity} disponible(s)',
+                      ].join(' • '),
                       style: const TextStyle(
                         color: Color(0xFF746B66),
                         fontSize: 12,
                       ),
                     ),
                     const SizedBox(height: 11),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.star_rounded,
-                          color: Color(0xFFFFBC17),
-                          size: 21,
+                    if (offer.shopName != null)
+                      Text(
+                        offer.shopName!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF746B66),
+                          fontSize: 12,
                         ),
-                        const SizedBox(width: 4),
-                        Text(
-                          restaurant.rating.toStringAsFixed(1)
-                              .replaceAll('.', ','),
-                          style: const TextStyle(
-                            color: burgundy,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Flexible(
-                          child: Text(
-                            '(${restaurant.reviews})',
-                            style: const TextStyle(
-                              color: Color(0xFF746B66),
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                      ],
+                      ),
+                    const SizedBox(height: 8),
+                    Text(
+                      price == null
+                          ? 'Prix indisponible'
+                          : '${price.toStringAsFixed(3)} DT',
+                      style: const TextStyle(
+                        color: burgundy,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                   ],
                 ),
@@ -669,28 +687,6 @@ class _SearchScreenState extends State<SearchScreen> {
               Column(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: restaurant.open
-                          ? const Color(0xFFE4F4DC)
-                          : const Color(0xFFFFE8D2),
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Text(
-                      restaurant.open ? 'Ouvert' : 'Fermé',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                        color: restaurant.open
-                            ? const Color(0xFF24752C)
-                            : const Color(0xFFBC5A00),
-                      ),
-                    ),
-                  ),
                   const SizedBox(height: 40),
                   const Icon(
                     Icons.chevron_right_rounded,
@@ -701,6 +697,25 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 35),
+        child: Column(
+          children: [
+            Text(_errorMessage!, textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            TextButton(
+              key: const ValueKey('search-retry'),
+              onPressed: () => _loadOffers(query: _query),
+              child: const Text('Réessayer'),
+            ),
+          ],
         ),
       ),
     );
@@ -719,7 +734,7 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
             const SizedBox(height: 15),
             const Text(
-              'Aucun restaurant trouvé',
+              'Aucune offre alimentaire trouvée',
               style: TextStyle(
                 fontWeight: FontWeight.w800,
                 fontSize: 17,
@@ -737,8 +752,10 @@ class _SearchScreenState extends State<SearchScreen> {
                 setState(() {
                   _query = '';
                   _category = 'Tous';
-                  _openOnly = false;
+                  _maxPrice = null;
+                  _maxPriceController.clear();
                 });
+                _loadOffers(query: '');
               },
               child: const Text(
                 'Réinitialiser',
@@ -849,104 +866,6 @@ class _ShopIllustration extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-class _Restaurant {
-  const _Restaurant({
-    required this.name,
-    required this.type,
-    required this.category,
-    required this.distance,
-    required this.rating,
-    required this.reviews,
-    required this.open,
-    required this.image,
-    required this.description,
-  });
-
-  final String name;
-  final String type;
-  final String category;
-  final int distance;
-  final double rating;
-  final int reviews;
-  final bool open;
-  final String image;
-  final String description;
-}
-
-class _RestaurantDetailScreen extends StatelessWidget {
-  const _RestaurantDetailScreen({
-    required this.restaurant,
-  });
-
-  final _Restaurant restaurant;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFFFF7F0),
-      appBar: AppBar(
-        title: Text(restaurant.name),
-        backgroundColor: const Color(0xFF8F0401),
-        foregroundColor: Colors.white,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(24),
-            child: Image.network(
-              restaurant.image,
-              height: 220,
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => const SizedBox(
-                height: 220,
-                child: Center(
-                  child: Icon(Icons.storefront, size: 70),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 25),
-          Text(
-            restaurant.name,
-            style: const TextStyle(
-              fontSize: 27,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            '${restaurant.type} • ${restaurant.distance} m (distance de démonstration)',
-            style: const TextStyle(
-              color: Color(0xFF756B66),
-            ),
-          ),
-          const SizedBox(height: 18),
-          Text(
-            restaurant.description,
-            style: const TextStyle(
-              fontSize: 16,
-              height: 1.6,
-            ),
-          ),
-          const SizedBox(height: 25),
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Text(
-              'Les offres de ce commerce seront affichées ici après la connexion au backend CampusSave.',
-              style: TextStyle(height: 1.5),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

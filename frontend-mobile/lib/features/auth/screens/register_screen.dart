@@ -1,10 +1,13 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/network/auth_repository.dart';
 import '../widgets/auth_screen_layout.dart';
 
 class RegisterScreen extends StatefulWidget {
-  const RegisterScreen({super.key});
+  const RegisterScreen({super.key, this.authRepository});
+
+  final AuthRepository? authRepository;
 
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
@@ -20,6 +23,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   bool _hidePassword = true;
   bool _hideConfirmPassword = true;
+  bool _isLoading = false;
+  late final AuthRepository _authRepository =
+      widget.authRepository ?? AuthRepository();
 
   @override
   void dispose() {
@@ -30,30 +36,48 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  void _register() {
+  Future<void> _register() async {
+    if (_isLoading) return;
     if (!_formKey.currentState!.validate()) return;
 
-    // Inscription de démonstration :
-    // aucune requête backend n'est encore effectuée.
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Formulaire valide ! Inscription bientôt disponible.'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    setState(() => _isLoading = true);
+    try {
+      await _authRepository.register(
+        fullName: _nameController.text.trim(),
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Compte créé. Tu peux maintenant te connecter.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      Navigator.of(context).maybePop();
+    } on AuthException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.message),
+          behavior: SnackBarBehavior.floating,
+          action: error.retryable
+              ? SnackBarAction(
+                  label: 'Réessayer',
+                  onPressed: () {
+                    _register();
+                  },
+                )
+              : null,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   void _goToLogin() {
     Navigator.of(context).maybePop();
-  }
-
-  void _showGoogleMessage() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Inscription avec Google bientôt disponible.'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
   }
 
   InputDecoration _inputDecoration(
@@ -137,8 +161,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               textInputAction: TextInputAction.next,
               decoration: _inputDecoration('Nom complet', Icons.person_outline),
               validator: (value) {
-                final name = value?.trim() ?? '';
-                if (name.length < 2) {
+                if (value == null || value.trim().isEmpty) {
                   return 'Saisis ton nom complet';
                 }
                 return null;
@@ -253,7 +276,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               height: 58,
               child: ElevatedButton(
                 key: const ValueKey('register-submit'),
-                onPressed: _register,
+                onPressed: _isLoading ? null : _register,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppTheme.burgundy,
                   foregroundColor: Colors.white,
@@ -261,20 +284,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   shadowColor: AppTheme.burgundy.withValues(alpha: 0.20),
                   shape: const StadiumBorder(),
                 ),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      "S'inscrire",
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
+                child: _isLoading
+                    ? const SizedBox(
+                        width: 23,
+                        height: 23,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2.5,
+                        ),
+                      )
+                    : const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            "S'inscrire",
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          SizedBox(width: 15),
+                          Icon(Icons.arrow_forward, size: 23),
+                        ],
                       ),
-                    ),
-                    SizedBox(width: 15),
-                    Icon(Icons.arrow_forward, size: 23),
-                  ],
-                ),
               ),
             ),
 
@@ -300,10 +332,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
             SizedBox(
               height: 55,
               child: OutlinedButton(
-                onPressed: _showGoogleMessage,
+                onPressed: null,
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppTheme.ink,
                   backgroundColor: const Color(0xFFFFFCF9),
+                  disabledForegroundColor: AppTheme.ink,
+                  disabledBackgroundColor: const Color(0xFFFFFCF9),
                   side: const BorderSide(color: Color(0xFFD7CBC1)),
                   shape: const StadiumBorder(),
                 ),
@@ -321,7 +355,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     const SizedBox(width: 12),
                     Flexible(
                       child: Text(
-                        "S'inscrire avec Google",
+                        'Bientôt disponible',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
