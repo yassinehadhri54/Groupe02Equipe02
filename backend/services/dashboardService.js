@@ -9,7 +9,9 @@ const { isOfferBookable, isOfferExpired, normalizeOffer } = require("../utils/of
 // Revenue and spending only count payments marked "paid", which the
 // backend sets only after a verified (Konnect) or mock confirmation.
 
-const RESERVATION_STATUSES = ["pending", "confirmed", "completed", "cancelled", "rejected"];
+const { ECO_POINTS_PER_ITEM } = reservationService;
+
+const RESERVATION_STATUSES =["pending", "confirmed", "completed", "cancelled", "rejected"];
 const CLOSED_RESERVATION_STATUSES = ["cancelled", "rejected"];
 const FIRESTORE_IN_LIMIT = 30;
 const RECENT_LIMIT = 5;
@@ -184,6 +186,11 @@ const getStudentDashboard = async (studentId) => {
             // Completed reservations whose offer no longer exists.
             savingsUnavailableFor
         },
+        // Bonus EcoPoints: earned at each validated pickup.
+        ecoPoints: {
+            total: completed.reduce((sum, r) => sum + toNumber(r.ecoPointsEarned), 0),
+            perItem: ECO_POINTS_PER_ITEM
+        },
         recentReservations: sortNewestFirst(reservations)
             .slice(0, RECENT_LIMIT)
             .map(summarizeReservation)
@@ -285,6 +292,22 @@ const getAdminDashboard = async () => {
 
     const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
 
+    // Bonus "Impact Dashboard": food rescued and money saved on the platform,
+    // counted on picked-up (completed) reservations.
+    const offersById = new Map(offers.map((offer) => [offer.id, offer]));
+    const completed = reservations.filter((r) => r.status === "completed");
+    let platformMoneySaved = 0;
+
+    for (const reservation of completed) {
+        const originalPrice = Number(offersById.get(reservation.offerId)?.originalPrice);
+        const unitPrice = Number(reservation.unitPrice);
+
+        if (Number.isFinite(originalPrice) && Number.isFinite(unitPrice)) {
+            platformMoneySaved +=
+                Math.max(0, originalPrice - unitPrice) * toNumber(reservation.quantity);
+        }
+    }
+
     return {
         users: {
             total: users.length,
@@ -296,7 +319,8 @@ const getAdminDashboard = async () => {
             byStatus: countBy(shops, (s) => s.status, ["pending", "approved", "rejected"])
         },
         offers: {
-            total: offers.length,
+            // Deleted offers are kept only for the reservation history.
+            total: offers.filter((o) => o.status !== "deleted").length,
             listed: offers.filter(isListedOffer).length,
             byStatus: countBy(offers, (o) => o.status)
         },
@@ -315,6 +339,12 @@ const getAdminDashboard = async () => {
             byStatus: countBy(payments, (p) => p.status),
             // "mock" amounts are test payments, not real money.
             paidVolume: sumPaidByMode(payments.filter((p) => p.status === "paid"))
+        },
+        impact: {
+            itemsRescued: completed.reduce((sum, r) => sum + toNumber(r.quantity), 0),
+            moneySaved: roundMoney(platformMoneySaved),
+            ecoPointsAwarded: completed.reduce((sum, r) => sum + toNumber(r.ecoPointsEarned), 0),
+            studentsInvolved: new Set(completed.map((r) => r.studentId)).size
         }
     };
 };

@@ -8,6 +8,10 @@ const isStudent = (req) => req.user?.role === "student";
 const getErrorStatus = (error) => {
     const message = error.message || "";
 
+    // Konnect side: down / unreachable (503) or refused our request (502).
+    if (message.includes("temporarily unavailable")) return 503;
+    if (message.startsWith("Konnect refused the request")) return 502;
+
     if (message.includes("not found")) return 404;
     if (
         message.includes("not allowed") ||
@@ -17,6 +21,9 @@ const getErrorStatus = (error) => {
         message.includes("already") ||
         message.includes("in progress") ||
         message.includes("not eligible") ||
+        message.includes("no longer eligible") ||
+        message.includes("does not match") ||
+        message.includes("created in") ||
         message.includes("not pending") ||
         message.includes("not available") ||
         message.includes("must be") ||
@@ -204,6 +211,180 @@ const confirmMockPayment = async (req, res) => {
     }
 };
 
+// --------------------------------------------------
+// MOCK PAYMENT PAGE (KONNECT_MOCK=true only)
+// HTML page opened by the student's browser through payUrl.
+// --------------------------------------------------
+
+const escapeHtml = (value) =>
+    String(value ?? "").replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#39;"
+    })[char]);
+
+const formatAmount = (amount) =>
+    Number(amount).toLocaleString("fr-TN", {
+        minimumFractionDigits: 3,
+        maximumFractionDigits: 3
+    });
+
+const renderMockPage = ({ title, body, tone = "neutral" }) => {
+    const accent = {
+        neutral: "#0f766e",
+        success: "#15803d",
+        error: "#b91c1c"
+    }[tone];
+
+    return `<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>${escapeHtml(title)} · Paiement simulé</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px;
+         font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         background: #f1f5f9; color: #0f172a; }
+  .card { width: 100%; max-width: 380px; background: #fff; border-radius: 16px; padding: 28px 24px;
+          box-shadow: 0 10px 30px rgba(15, 23, 42, .08); }
+  .badge { display: inline-block; font-size: 12px; font-weight: 600; letter-spacing: .04em;
+           text-transform: uppercase; color: #92400e; background: #fef3c7; border-radius: 999px; padding: 4px 10px; }
+  h1 { font-size: 20px; margin: 16px 0 4px; color: ${accent}; }
+  p { margin: 8px 0; line-height: 1.5; color: #334155; }
+  .amount { font-size: 34px; font-weight: 700; color: #0f172a; margin: 18px 0 4px; }
+  .muted { font-size: 13px; color: #64748b; }
+  button { width: 100%; margin-top: 22px; padding: 14px; font-size: 16px; font-weight: 600; color: #fff;
+           background: ${accent}; border: 0; border-radius: 10px; cursor: pointer; }
+  button:hover { filter: brightness(1.08); }
+  button:disabled { opacity: .6; cursor: wait; }
+</style>
+</head>
+<body>
+<main class="card">
+  <span class="badge">Mode test · Konnect simulé</span>
+  ${body}
+  <p class="muted">Aucun argent réel n'est débité. Vous pouvez fermer cette page et revenir dans l'application.</p>
+</main>
+</body>
+</html>`;
+};
+
+const describeCheckout = (checkout) => {
+    const item = [checkout.quantity ? `${checkout.quantity} ×` : "", checkout.offerName]
+        .filter(Boolean)
+        .join(" ");
+
+    const parts = [
+        item ? `<p><strong>${escapeHtml(item)}</strong></p>` : "",
+        checkout.shopName ? `<p>${escapeHtml(checkout.shopName)}</p>` : ""
+    ];
+
+    return parts.join("");
+};
+
+const sendMockPage = (res, status, page) =>
+    res.status(status).type("html").send(renderMockPage(page));
+
+const sendMockError = (res, error) => {
+    const message = error.message || "";
+
+    let status = 500;
+    let text = "Ce paiement n'est pas disponible.";
+
+    if (message.includes("disabled")) {
+        status = 404;
+        text = "Le paiement simulé est désactivé (KONNECT_MOCK=false).";
+    } else if (message.includes("expired")) {
+        status = 410;
+        text = "Ce lien de paiement a expiré. Relancez le paiement depuis l'application.";
+    } else if (message.includes("not pending")) {
+        status = 409;
+        text = "Ce paiement a été annulé ou a expiré. Relancez le paiement depuis l'application.";
+    } else if (message.includes("not found") || message.includes("Invalid")) {
+        status = 404;
+        text = "Lien de paiement introuvable.";
+    } else if (message.includes("eligible") || message.includes("invalid")) {
+        status = 409;
+        text = "La réservation n'accepte plus de paiement (annulée ou modifiée).";
+    }
+
+    return sendMockPage(res, status, {
+        title: "Paiement impossible",
+        tone: "error",
+        body: `<h1>Paiement impossible</h1><p>${escapeHtml(text)}</p>`
+    });
+};
+
+const paidPage = (checkout) => ({
+    title: "Paiement réussi",
+    tone: "success",
+    body: `<h1>Paiement réussi ✓</h1>
+  <div class="amount">${formatAmount(checkout.amount)} ${escapeHtml(checkout.currency)}</div>
+  ${describeCheckout(checkout)}
+  <p>Votre réservation est payée. Votre QR code est disponible dans l'application.</p>`
+});
+
+// GET /api/payments/mock-checkout/:paymentRef
+const showMockCheckout = async (req, res) => {
+    try {
+        const checkout = await paymentService.getMockCheckout(
+            req.params.paymentRef
+        );
+
+        if (checkout.status === "paid") {
+            return sendMockPage(res, 200, paidPage(checkout));
+        }
+
+        if (checkout.status !== "pending") {
+            throw new Error("This payment is not pending.");
+        }
+
+        if (checkout.expired) {
+            throw new Error("This payment link has expired.");
+        }
+
+        const action = `${req.baseUrl}/mock-checkout/${encodeURIComponent(checkout.paymentRef)}/pay`;
+
+        return sendMockPage(res, 200, {
+            title: "Payer",
+            body: `<h1>CampusSave</h1>
+  <div class="amount">${formatAmount(checkout.amount)} ${escapeHtml(checkout.currency)}</div>
+  ${describeCheckout(checkout)}
+  <form method="post" action="${escapeHtml(action)}" onsubmit="this.querySelector('button').disabled = true">
+    <button type="submit">Payer</button>
+  </form>`
+        });
+    } catch (error) {
+        console.error("Mock checkout error:", error.message);
+
+        return sendMockError(res, error);
+    }
+};
+
+// POST /api/payments/mock-checkout/:paymentRef/pay
+const submitMockCheckout = async (req, res) => {
+    try {
+        const checkout = await paymentService.payMockCheckout(
+            req.params.paymentRef
+        );
+
+        if (checkout.status !== "paid") {
+            throw new Error("Payment has not been confirmed.");
+        }
+
+        return sendMockPage(res, 200, paidPage(checkout));
+    } catch (error) {
+        console.error("Mock checkout payment error:", error.message);
+
+        return sendMockError(res, error);
+    }
+};
+
 // GET /api/payments/:id
 const getPayment = async (req, res) => {
     try {
@@ -272,6 +453,8 @@ module.exports = {
     konnectWebhook,
     cancelPayment,
     confirmMockPayment,
+    showMockCheckout,
+    submitMockCheckout,
     getPayment,
     getMyPayments
 };

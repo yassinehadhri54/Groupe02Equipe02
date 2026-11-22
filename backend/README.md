@@ -32,8 +32,10 @@ backend/
 ├── middlewares/     authMiddleware.js (vérifie le token Firebase), roleMiddleware.js (rôles)
 ├── routes/          une route par module (auth, users, shops, offers, reservations, payments, dashboard, notifications)
 ├── controllers/     validation des requêtes et codes HTTP
-├── services/        logique métier et accès à Firestore
+├── services/        logique métier et accès à Firestore ; konnect.js parle à Konnect
 ├── utils/           offerFields.js (formats d'offre), validation.js (URL, horaires)
+├── tests/           tests automatiques hors ligne (npm test)
+├── firestore.rules  règles de sécurité Firestore par rôle
 ├── server.js        point d'entrée
 └── .env.example     variables d'environnement à copier dans .env
 ```
@@ -52,7 +54,7 @@ Ensuite, remplissez `.env` :
 
 1. **Clé du compte de service Firebase.** Dans la console Firebase : *Paramètres du projet → Comptes de service → Générer une nouvelle clé privée*. Placez le fichier JSON **en dehors du projet** et indiquez son chemin absolu dans `GOOGLE_APPLICATION_CREDENTIALS`.
 2. **`FIREBASE_WEB_API_KEY`** : *Paramètres du projet → Général → Clé API Web*.
-3. **`PAYMENT_MODE=mock`** pour développer. Pour Konnect, mettez `sandbox` et ajoutez `KONNECT_API_KEY` et `KONNECT_WALLET_ID`, à récupérer sur dashboard.sandbox.konnect.network.
+3. **`KONNECT_MOCK=true`** pour développer (page de paiement simulée). Pour le vrai Konnect en mode test, mettez `KONNECT_MOCK=false` et ajoutez `KONNECT_API_KEY` et `KONNECT_WALLET_ID`, à récupérer sur dashboard.sandbox.konnect.network.
 
 > ⚠️ Ne commitez jamais `.env` ni le fichier JSON du compte de service : ils sont exclus par `.gitignore`.
 
@@ -61,7 +63,10 @@ Ensuite, remplissez `.env` :
 ```bash
 npm run dev     # développement (nodemon, redémarre à chaque modification)
 npm start       # production
+npm test        # tests automatiques hors ligne (faux Firestore, faux Konnect, faux FCM)
 ```
+
+Les tests n'ont besoin ni de clé Firebase, ni d'Internet, et n'écrivent rien dans la vraie base. Ils couvrent les paiements (page simulée, webhook, sandbox, panne de Konnect), les notifications et EcoPoints, la déconnexion, la suspension, les validations, et les accès concurrents (modification d'offre pendant une réservation, double inscription de boutique).
 
 Vérification :
 
@@ -86,7 +91,7 @@ Base : `http://localhost:5000/api`
 ### Authentification — `/api/auth`
 | Méthode | Route | Accès | Body |
 |---|---|---|---|
-| POST | `/register` | public | `fullName, email, password (≥ 8), role ("student" ou "merchant")` |
+| POST | `/register` | public | `fullName (2 à 100 caractères), email, password (≥ 8), role ("student" ou "merchant")` |
 | POST | `/login` | public | `email, password` |
 | GET | `/me` | connecté | — |
 | POST | `/logout` | connecté | `fcmToken` (optionnel) : révoque les sessions **sur tous les appareils** |
@@ -105,7 +110,7 @@ Base : `http://localhost:5000/api`
 ### Boutiques — `/api/shops`
 | Méthode | Route | Accès | Body |
 |---|---|---|---|
-| POST | `/register` | commerçant | `name, address, phone, email?, description?` (statut initial `pending`) |
+| POST | `/register` | commerçant | `name (2-100), address (2-200), phone (8 à 15 chiffres), email?, description? (≤ 1000)` (statut initial `pending`, une seule boutique par commerçant) |
 | GET | `/my-shop` | commerçant | — |
 | PUT | `/my-shop` | commerçant | `name, address, phone, email, description` |
 | GET | `/?status=pending` | admin | — |
@@ -120,7 +125,7 @@ Base : `http://localhost:5000/api`
 | POST | `/` | commerçant avec boutique approuvée | `name, category, originalPrice, discountPrice, quantity, pickupStart, pickupEnd, description?, imageURL?` |
 | GET | `/merchant/my-offers` | commerçant | — |
 | PUT | `/:id` | commerçant propriétaire | champs à modifier |
-| DELETE | `/:id` | commerçant propriétaire | — |
+| DELETE | `/:id` | commerçant propriétaire | — (suppression douce : l'offre passe à `deleted`, disparaît de la liste et ne peut plus être réservée ; ses réservations restent annulables) |
 
 Règles de validation :
 
@@ -157,9 +162,10 @@ Les autres règles liées aux horaires :
 ### Paiements — `/api/payments`
 | Méthode | Route | Accès | Body |
 |---|---|---|---|
-| POST | `/initiate` | étudiant | `reservationId` (en sandbox, renvoie `payUrl`, la page de paiement Konnect) |
-| POST | `/:id/verify` | étudiant | — (sandbox : interroge Konnect pour obtenir le vrai statut) |
-| POST | `/:id/confirm-mock` | étudiant | — (mode `mock` uniquement) |
+| POST | `/init` (ou `/initiate`) | étudiant | `reservationId` → renvoie `payUrl`, la page de paiement (Konnect ou page simulée) |
+| POST | `/:id/verify` | étudiant | — (interroge Konnect pour obtenir le vrai statut) |
+| GET | `/mock-checkout/:ref` | public (navigateur) | — (mode simulé uniquement : la fausse page Konnect avec le bouton « Payer ») |
+| POST | `/:id/confirm-mock` | étudiant | — (mode simulé uniquement : paiement direct sans la page, pour Postman) |
 | POST | `/:id/cancel` | étudiant | — (mock : immédiat ; sandbox : seulement après l'expiration du lien) |
 | GET | `/my-payments` | étudiant | — |
 | GET | `/:id` | étudiant propriétaire | — |
@@ -168,9 +174,13 @@ Les autres règles liées aux horaires :
 ### Tableaux de bord — `/api/dashboard`
 | Méthode | Route | Accès | Contenu |
 |---|---|---|---|
-| GET | `/student` | étudiant | réservations par statut, total payé, produits sauvés, argent économisé, dernières réservations |
+| GET | `/student` | étudiant | réservations par statut, total payé, impact (produits sauvés, argent économisé), **EcoPoints**, dernières réservations |
 | GET | `/merchant` | commerçant | boutique, offres, réservations par statut, revenus payés, top offres |
-| GET | `/admin` | admin | utilisateurs, boutiques, offres, réservations et volume payé (aucune donnée personnelle) |
+| GET | `/admin` | admin | utilisateurs, boutiques, offres, réservations, volume payé et **impact de la plateforme** (aucune donnée personnelle) |
+
+**Bonus du cahier des charges :**
+- **EcoPoints** : 10 points par produit récupéré, ajoutés quand le commerçant valide le QR code (une seule fois, dans la même transaction). Stockés dans `users/{uid}.ecoPoints` et dans `ecoPointsEarned` de la réservation.
+- **Impact Dashboard** : produits sauvés, argent économisé et EcoPoints, pour l'étudiant (`/student` → `impact`, `ecoPoints`) et pour toute la plateforme (`/admin` → `impact`).
 
 ### Notifications — `/api/notifications`
 | Méthode | Route | Accès | Body |
@@ -192,7 +202,7 @@ Offre disponible
   → Paiement confirmé ............... paymentStatus: paid
   → Commerçant confirme ............. status: confirmed
   → Étudiant affiche son QR code
-  → Commerçant scanne le QR ......... status: completed  (QR à usage unique)
+  → Commerçant scanne le QR ......... status: completed  (QR à usage unique, +10 EcoPoints par produit)
 
 Autres issues : l'étudiant annule ou le commerçant refuse (seulement si la réservation n'est pas payée)
 → status: cancelled / rejected, et le stock est restitué.
@@ -200,8 +210,25 @@ Autres issues : l'étudiant annule ou le commerçant refuse (seulement si la ré
 
 ## 8. Paiement
 
-- **`PAYMENT_MODE=mock`** : aucun appel externe. `confirm-mock` simule un paiement réussi. Réservé au développement et aux démonstrations.
-- **`PAYMENT_MODE=sandbox`** : mode test de Konnect. `initiate` crée le paiement chez Konnect et renvoie `payUrl`. La réservation n'est marquée `paid` que lorsque **Konnect lui-même** répond `completed`, avec le bon montant (en millimes) et la devise TND. Ce contrôle passe par `/verify` ou par le webhook.
+Le code : `services/konnect.js` parle à Konnect (création du lien, lecture du statut) ; `routes/paymentRoutes.js` déclare `/init`, `/webhook` et la page de paiement simulée.
+
+| Mode | Réglage dans `.env` | Fonctionnement |
+|---|---|---|
+| Simulé | `KONNECT_MOCK=true` | Le backend affiche une **fausse page de paiement** avec un bouton « Payer ». Pas de compte Konnect ni d'Internet. |
+| Konnect sandbox | `KONNECT_MOCK=false` + clés | La vraie page Konnect, en mode test. |
+
+Parcours d'un paiement (identique dans les deux modes) :
+
+1. L'étudiant réserve → `status: pending`, `paymentStatus: unpaid` (en attente de paiement).
+2. Il clique sur « Payer » → l'app appelle `POST /api/payments/init` avec `reservationId`.
+3. Le backend demande un paiement à Konnect : montant en millimes (6,500 DT → 6500), numéro de paiement (`orderId`) et adresse du webhook.
+4. Konnect répond avec `payUrl` → l'app ouvre cette page et l'étudiant paie.
+5. Konnect appelle le webhook `GET /api/payments/webhook?payment_ref=…`.
+6. Le backend redemande le statut à Konnect : seul `completed`, avec le bon montant et la devise TND, est accepté. Le navigateur et l'appel du webhook ne sont jamais crus sur parole.
+7. Payé → `paymentStatus: paid`, l'étudiant et le commerçant reçoivent une notification, et le QR code devient disponible (`GET /api/reservations/:id/qr`).
+
+- **Mode simulé** : la page `payUrl` est servie par le backend (`/api/payments/mock-checkout/<référence aléatoire>`). « Payer » joue le rôle de Konnect : il marque le paiement comme réussi côté « Konnect », puis appelle le vrai webhook. Depuis un téléphone, mettez l'IP du PC dans `PUBLIC_BASE_URL` (ex. `http://192.168.1.10:5000`). `confirm-mock` reste disponible pour Postman.
+- **Konnect sandbox** : Konnect ne peut pas joindre `localhost`. Sans `KONNECT_WEBHOOK_URL` public, l'app appelle `POST /:id/verify` au retour de la page de paiement.
 - Le montant est toujours calculé par le serveur. Un statut de paiement envoyé par le client n'est jamais pris en compte.
 
 ## 9. Sécurité
@@ -215,6 +242,6 @@ Autres issues : l'étudiant annule ou le commerçant refuse (seulement si la ré
 ## 10. Limites connues
 
 - Les offres créées par un autre client utilisent d'autres noms de champs (`title`, `discountedPrice`, `imageUrl`, `merchantId`, statut `active`). Le backend accepte les deux formats (voir `utils/offerFields.js`), mais l'équipe devrait n'en garder qu'un.
-- Le fichier `firestore.rules` autorise encore tous les accès clients jusqu'au 16/12/2026. Si React et Flutter passent uniquement par cette API, il faut le verrouiller.
-- Le webhook Konnect a besoin d'une URL publique. En local, utilisez `/verify`.
+- **Règles Firestore** : `firestore.rules` contient maintenant des règles par rôle (lecture selon le rôle et la propriété, aucune écriture directe des clients : tout passe par l'API). Elles ne sont actives qu'après `firebase deploy --only firestore:rules`. Avant de les déployer, vérifiez qu'aucun client (React, Flutter) n'écrit encore directement dans Firestore, sinon ses écritures seront refusées.
+- Konnect sandbox : le webhook a besoin d'une URL publique. En local, utilisez `/verify`.
 - La photo d'une offre est une URL : il n'y a pas d'upload de fichier.

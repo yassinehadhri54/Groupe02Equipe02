@@ -10,8 +10,13 @@ const {
 const {
     isHttpUrl,
     isNonEmptyText,
+    isOptionalText,
     validatePickupWindow
 } = require("../utils/validation");
+
+// A deleted offer is kept (status "deleted") so that its reservations can
+// still be cancelled, rejected or shown in the history.
+const DELETED_STATUS = "deleted";
 
 const offersCollection = db.collection("offers");
 const shopsCollection = db.collection("shops");
@@ -46,6 +51,10 @@ const createOffer = async (uid, offerData) => {
         throw new Error("imageURL must be a valid http(s) URL.");
     }
 
+    if (!isOptionalText(offerData.description)) {
+        throw new Error("description must be a text of at most 1000 characters.");
+    }
+
     const shop = await getApprovedShop(uid);
 
     const offerRef = offersCollection.doc();
@@ -57,7 +66,7 @@ const createOffer = async (uid, offerData) => {
         ownerId: uid,
 
         name: offerData.name,
-        description: offerData.description || "",
+        description: (offerData.description || "").trim(),
         category: offerData.category,
         originalPrice: Number(offerData.originalPrice),
         discountPrice: Number(offerData.discountPrice),
@@ -175,7 +184,7 @@ const getAllOffers = async (filters = {}) => {
 const getOfferById = async (offerId) => {
     const offerDoc = await offersCollection.doc(offerId).get();
 
-    if (!offerDoc.exists) {
+    if (!offerDoc.exists || offerDoc.data().status === DELETED_STATUS) {
         return null;
     }
 
@@ -193,133 +202,149 @@ const getMyOffers = async (uid) => {
 
     const offersById = new Map();
 
-    [...ownerSnapshot.docs, ...merchantSnapshot.docs].forEach((doc) => {
-        offersById.set(doc.id, normalizeOffer(doc.id, doc.data()));
-    });
+    [...ownerSnapshot.docs, ...merchantSnapshot.docs]
+        .filter((doc) => doc.data().status !== DELETED_STATUS)
+        .forEach((doc) => {
+            offersById.set(doc.id, normalizeOffer(doc.id, doc.data()));
+        });
 
     return [...offersById.values()];
 };
 
 // Modifier une offre
+// The read, the checks and the write run in one transaction: reservations
+// change availableQuantity in transactions too, so a quantity change can
+// never overwrite stock taken or returned in the meantime.
 const updateOffer = async (uid, offerId, updateData) => {
     const offerRef = offersCollection.doc(offerId);
-    const offerDoc = await offerRef.get();
 
-    if (!offerDoc.exists) {
-        throw new Error("Offer not found.");
-    }
+    await db.runTransaction(async (transaction) => {
+        const offerDoc = await transaction.get(offerRef);
 
-    if (getOfferOwnerId(offerDoc.data()) !== uid) {
-        throw new Error("You are not allowed to modify this offer.");
-    }
-
-    const allowedFields = [
-        "name",
-        "description",
-        "category",
-        "originalPrice",
-        "discountPrice",
-        "quantity",
-        "pickupStart",
-        "pickupEnd",
-        "imageURL"
-    ];
-
-    const cleanData = {};
-
-    for (const field of allowedFields) {
-        if (updateData[field] !== undefined) {
-            cleanData[field] = updateData[field];
+        if (!offerDoc.exists || offerDoc.data().status === DELETED_STATUS) {
+            throw new Error("Offer not found.");
         }
-    }
 
-    if (Object.keys(cleanData).length === 0) {
-        throw new Error("No valid fields provided for update.");
-    }
-
-    const rawCurrent = offerDoc.data();
-    const current = normalizeOffer(offerDoc.id, rawCurrent);
-
-    for (const field of ["name", "category"]) {
-        if (cleanData[field] !== undefined && !isNonEmptyText(cleanData[field])) {
-            throw new Error(`${field} must be a non-empty text of at most 100 characters.`);
+        if (getOfferOwnerId(offerDoc.data()) !== uid) {
+            throw new Error("You are not allowed to modify this offer.");
         }
-    }
 
-    if (
-        cleanData.imageURL !== undefined &&
-        cleanData.imageURL !== "" &&
-        !isHttpUrl(cleanData.imageURL)
-    ) {
-        throw new Error("imageURL must be a valid http(s) URL.");
-    }
+        const allowedFields = [
+            "name",
+            "description",
+            "category",
+            "originalPrice",
+            "discountPrice",
+            "quantity",
+            "pickupStart",
+            "pickupEnd",
+            "imageURL"
+        ];
 
-    if (cleanData.pickupStart !== undefined || cleanData.pickupEnd !== undefined) {
-        validatePickupWindow(
-            cleanData.pickupStart ?? current.pickupStart,
-            cleanData.pickupEnd ?? current.pickupEnd
-        );
-    }
+        const cleanData = {};
 
-    for (const field of ["originalPrice", "discountPrice"]) {
-        if (cleanData[field] !== undefined) {
-            cleanData[field] = Number(cleanData[field]);
-
-            if (!Number.isFinite(cleanData[field])) {
-                throw new Error("Prices must be valid numbers.");
+        for (const field of allowedFields) {
+            if (updateData[field] !== undefined) {
+                cleanData[field] = updateData[field];
             }
         }
-    }
 
-    if (cleanData.quantity !== undefined) {
-        const newQuantity = Number(cleanData.quantity);
-
-        if (!Number.isInteger(newQuantity) || newQuantity <= 0) {
-            throw new Error("Quantity must be a positive integer.");
+        if (Object.keys(cleanData).length === 0) {
+            throw new Error("No valid fields provided for update.");
         }
 
-        const alreadyReserved =
-            current.quantity - current.availableQuantity;
+        const rawCurrent = offerDoc.data();
+        const current = normalizeOffer(offerDoc.id, rawCurrent);
 
-        if (newQuantity < alreadyReserved) {
-            throw new Error(
-                "Quantity cannot be lower than the quantity already reserved."
+        if (cleanData.description !== undefined) {
+            if (!isOptionalText(cleanData.description)) {
+                throw new Error("description must be a text of at most 1000 characters.");
+            }
+
+            cleanData.description = (cleanData.description || "").trim();
+        }
+
+        for (const field of ["name", "category"]) {
+            if (cleanData[field] !== undefined && !isNonEmptyText(cleanData[field])) {
+                throw new Error(`${field} must be a non-empty text of at most 100 characters.`);
+            }
+        }
+
+        if (
+            cleanData.imageURL !== undefined &&
+            cleanData.imageURL !== "" &&
+            !isHttpUrl(cleanData.imageURL)
+        ) {
+            throw new Error("imageURL must be a valid http(s) URL.");
+        }
+
+        if (cleanData.pickupStart !== undefined || cleanData.pickupEnd !== undefined) {
+            validatePickupWindow(
+                cleanData.pickupStart ?? current.pickupStart,
+                cleanData.pickupEnd ?? current.pickupEnd
             );
         }
 
-        cleanData.quantity = newQuantity;
-        cleanData.availableQuantity = newQuantity - alreadyReserved;
-    }
+        for (const field of ["originalPrice", "discountPrice"]) {
+            if (cleanData[field] !== undefined) {
+                cleanData[field] = Number(cleanData[field]);
 
-    const finalOriginalPrice =
-        cleanData.originalPrice ?? current.originalPrice;
-
-    const finalDiscountPrice =
-        cleanData.discountPrice ?? current.discountPrice;
-
-    if (
-        finalOriginalPrice <= 0 ||
-        finalDiscountPrice <= 0 ||
-        finalDiscountPrice >= finalOriginalPrice
-    ) {
-        throw new Error(
-            "Discount price must be positive and lower than original price."
-        );
-    }
-
-    // Offers created by another client use other field names: keep those
-    // in sync too, so every client sees the same values.
-    const legacyFields = { name: "title", discountPrice: "discountedPrice", imageURL: "imageUrl" };
-
-    for (const [field, legacyField] of Object.entries(legacyFields)) {
-        if (cleanData[field] !== undefined && rawCurrent[legacyField] !== undefined) {
-            cleanData[legacyField] = cleanData[field];
+                if (!Number.isFinite(cleanData[field])) {
+                    throw new Error("Prices must be valid numbers.");
+                }
+            }
         }
-    }
 
-    cleanData.updatedAt = FieldValue.serverTimestamp();
+        if (cleanData.quantity !== undefined) {
+            const newQuantity = Number(cleanData.quantity);
 
-    await offerRef.update(cleanData);
+            if (!Number.isInteger(newQuantity) || newQuantity <= 0) {
+                throw new Error("Quantity must be a positive integer.");
+            }
+
+            const alreadyReserved =
+                current.quantity - current.availableQuantity;
+
+            if (newQuantity < alreadyReserved) {
+                throw new Error(
+                    "Quantity cannot be lower than the quantity already reserved."
+                );
+            }
+
+            cleanData.quantity = newQuantity;
+            cleanData.availableQuantity = newQuantity - alreadyReserved;
+        }
+
+        const finalOriginalPrice =
+            cleanData.originalPrice ?? current.originalPrice;
+
+        const finalDiscountPrice =
+            cleanData.discountPrice ?? current.discountPrice;
+
+        if (
+            finalOriginalPrice <= 0 ||
+            finalDiscountPrice <= 0 ||
+            finalDiscountPrice >= finalOriginalPrice
+        ) {
+            throw new Error(
+                "Discount price must be positive and lower than original price."
+            );
+        }
+
+        // Offers created by another client use other field names: keep those
+        // in sync too, so every client sees the same values.
+        const legacyFields = { name: "title", discountPrice: "discountedPrice", imageURL: "imageUrl" };
+
+        for (const [field, legacyField] of Object.entries(legacyFields)) {
+            if (cleanData[field] !== undefined && rawCurrent[legacyField] !== undefined) {
+                cleanData[legacyField] = cleanData[field];
+            }
+        }
+
+        cleanData.updatedAt = FieldValue.serverTimestamp();
+
+        transaction.update(offerRef, cleanData);
+    });
 
     const updatedDoc = await offerRef.get();
 
@@ -327,19 +352,30 @@ const updateOffer = async (uid, offerId, updateData) => {
 };
 
 // Supprimer une offre
+// Soft delete: the offer disappears from the listing and can no longer be
+// reserved or edited, but the document stays so that its reservations can
+// still be cancelled / rejected (stock is returned to it) and dashboards
+// keep the original price for the savings history.
 const deleteOffer = async (uid, offerId) => {
     const offerRef = offersCollection.doc(offerId);
-    const offerDoc = await offerRef.get();
 
-    if (!offerDoc.exists) {
-        throw new Error("Offer not found.");
-    }
+    await db.runTransaction(async (transaction) => {
+        const offerDoc = await transaction.get(offerRef);
 
-    if (getOfferOwnerId(offerDoc.data()) !== uid) {
-        throw new Error("You are not allowed to delete this offer.");
-    }
+        if (!offerDoc.exists || offerDoc.data().status === DELETED_STATUS) {
+            throw new Error("Offer not found.");
+        }
 
-    await offerRef.delete();
+        if (getOfferOwnerId(offerDoc.data()) !== uid) {
+            throw new Error("You are not allowed to delete this offer.");
+        }
+
+        transaction.update(offerRef, {
+            status: DELETED_STATUS,
+            deletedAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp()
+        });
+    });
 
     return {
         offerId,

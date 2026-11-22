@@ -13,6 +13,11 @@ const notificationService = require("./notificationService");
 const reservationsCollection = db.collection("reservations");
 const offersCollection = db.collection("offers");
 const shopsCollection = db.collection("shops");
+const usersCollection = db.collection("users");
+
+// Bonus "EcoPoints": points given to the student for each item picked up
+// (awarded once, when the merchant validates the QR code).
+const ECO_POINTS_PER_ITEM = 10;
 
 // Create a reservation
 const createReservation = async (studentId, offerId, quantity) => {
@@ -249,22 +254,21 @@ const updateReservationStatus = async (
             const offerRef = offersCollection.doc(reservation.offerId);
             const offerSnapshot = await transaction.get(offerRef);
 
-            if (!offerSnapshot.exists) {
-                throw new Error("Offer not found.");
+            // An offer removed from the database (older hard delete) has no
+            // stock to return: the reservation is still rejected.
+            if (offerSnapshot.exists) {
+                const currentQuantity = Number(offerSnapshot.data().availableQuantity);
+
+                if (!Number.isFinite(currentQuantity)) {
+                    throw new Error("Invalid offer quantity.");
+                }
+
+                transaction.update(offerRef, {
+                    availableQuantity:
+                        currentQuantity + Number(reservation.quantity),
+                    updatedAt: FieldValue.serverTimestamp()
+                });
             }
-
-            const offer = offerSnapshot.data();
-            const currentQuantity = Number(offer.availableQuantity);
-
-            if (!Number.isFinite(currentQuantity)) {
-                throw new Error("Invalid offer quantity.");
-            }
-
-            transaction.update(offerRef, {
-                availableQuantity:
-                    currentQuantity + Number(reservation.quantity),
-                updatedAt: FieldValue.serverTimestamp()
-            });
         }
 
         transaction.update(reservationRef, {
@@ -430,18 +434,39 @@ const verifyReservationQR = async (merchantId, token) => {
             );
         }
 
+        const quantity = Number(reservation.quantity);
+        const ecoPointsEarned =
+            Number.isInteger(quantity) && quantity > 0
+                ? quantity * ECO_POINTS_PER_ITEM
+                : 0;
+
         // One-time QR validation and reservation completion.
         transaction.update(reservationRef, {
             status: "completed",
+            ecoPointsEarned,
             "qr.usedAt": FieldValue.serverTimestamp(),
             completedAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp()
         });
 
+        // EcoPoints are added in the same transaction: a QR code can only be
+        // used once, so points cannot be earned twice for one pickup.
+        if (ecoPointsEarned > 0) {
+            transaction.set(
+                usersCollection.doc(reservation.studentId),
+                {
+                    ecoPoints: FieldValue.increment(ecoPointsEarned),
+                    updatedAt: FieldValue.serverTimestamp()
+                },
+                { merge: true }
+            );
+        }
+
         return {
             reservationId: reservationRef.id,
             status: "completed",
             paymentStatus: "paid",
+            ecoPointsEarned,
             message: "QR Code verified. Reservation completed successfully."
         };
     });
@@ -486,22 +511,21 @@ const cancelReservation = async (studentId, reservationId) => {
         const offerRef = offersCollection.doc(reservation.offerId);
         const offerSnapshot = await transaction.get(offerRef);
 
-        if (!offerSnapshot.exists) {
-            throw new Error("Offer not found.");
+        // An offer removed from the database (older hard delete) has no
+        // stock to return: the reservation is still cancelled.
+        if (offerSnapshot.exists) {
+            const currentQuantity = Number(offerSnapshot.data().availableQuantity);
+
+            if (!Number.isFinite(currentQuantity)) {
+                throw new Error("Invalid offer quantity.");
+            }
+
+            transaction.update(offerRef, {
+                availableQuantity:
+                    currentQuantity + Number(reservation.quantity),
+                updatedAt: FieldValue.serverTimestamp()
+            });
         }
-
-        const offer = offerSnapshot.data();
-        const currentQuantity = Number(offer.availableQuantity);
-
-        if (!Number.isFinite(currentQuantity)) {
-            throw new Error("Invalid offer quantity.");
-        }
-
-        transaction.update(offerRef, {
-            availableQuantity:
-                currentQuantity + Number(reservation.quantity),
-            updatedAt: FieldValue.serverTimestamp()
-        });
 
         transaction.update(reservationRef, {
             status: "cancelled",
@@ -583,7 +607,8 @@ const withPickupNotification = async (...args) => {
         await notificationService.notifyUser(reservation.studentId, {
             type: "reservation_completed",
             title: "Commande récupérée",
-            body: `Merci ! ${describe(reservation)} chez ${reservation.shopName} a bien été récupérée.`,
+            body: `Merci ! ${describe(reservation)} chez ${reservation.shopName} a bien été récupérée.` +
+                (result.ecoPointsEarned ? ` +${result.ecoPointsEarned} EcoPoints.` : ""),
             data: { reservationId: result.reservationId }
         });
     })().catch((error) => console.error("Pickup notification error:", error.message));
@@ -592,6 +617,7 @@ const withPickupNotification = async (...args) => {
 };
 
 module.exports = {
+    ECO_POINTS_PER_ITEM,
     createReservation: withCreatedNotification,
     getMyReservations,
     getMerchantReservations,

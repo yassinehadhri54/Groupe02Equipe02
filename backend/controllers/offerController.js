@@ -92,7 +92,11 @@ const createOffer = async (req, res) => {
 // Afficher toutes les offres disponibles
 const getAllOffers = async (req, res) => {
     try {
-        const { category, shopId, maxPrice, q, product, shop } = req.query;
+        const { category, shopId, q, product, shop } = req.query;
+
+        // An empty "max price" box (?maxPrice=) means no price filter,
+        // not "free offers only".
+        const maxPrice = req.query.maxPrice === "" ? undefined : req.query.maxPrice;
 
         // Text filters must be single strings (not repeated params) of reasonable length.
         const textFilters = { category, shopId, q, product, shop };
@@ -110,7 +114,7 @@ const getAllOffers = async (req, res) => {
 
         if (
             maxPrice !== undefined &&
-            (!Number.isFinite(Number(maxPrice)) || Number(maxPrice) < 0)
+            (typeof maxPrice !== "string" || !Number.isFinite(Number(maxPrice)) || Number(maxPrice) < 0)
         ) {
             return res.status(400).json({
                 success: false,

@@ -1,12 +1,15 @@
 
 const { db } = require("../config/firebase");
 const { FieldValue } = require("firebase-admin/firestore");
+const { validateShopFields } = require("../utils/validation");
 
 const shopsCollection = db.collection("shops");
 const usersCollection = db.collection("users");
 
 // Create a new shop
-const createShop = async (uid, shopData) => {
+const createShop = async (uid, rawShopData) => {
+    const shopData = validateShopFields(rawShopData || {});
+
     const userRef = usersCollection.doc(uid);
     const userDoc = await userRef.get();
 
@@ -24,17 +27,11 @@ const createShop = async (uid, shopData) => {
         throw new Error("Your merchant account was rejected.");
     }
 
-    // Check if this merchant already has a shop
-    const existingShop = await shopsCollection
-        .where("ownerId", "==", uid)
-        .limit(1)
-        .get();
-
-    if (!existingShop.empty) {
-        throw new Error("You have already registered a shop.");
-    }
-
-    const shopRef = shopsCollection.doc();
+    // One shop per merchant. The new shop's document ID is the merchant's
+    // uid, so two simultaneous registrations cannot both succeed: the
+    // second create() fails because the document already exists.
+    const shopRef = shopsCollection.doc(uid);
+    const existingQuery = shopsCollection.where("ownerId", "==", uid).limit(1);
 
     const newShop = {
         shopId: shopRef.id,
@@ -53,7 +50,28 @@ const createShop = async (uid, shopData) => {
         updatedAt: FieldValue.serverTimestamp()
     };
 
-    await shopRef.set(newShop);
+    try {
+        await db.runTransaction(async (transaction) => {
+            // Shops created before this change have a random document ID.
+            const [existingShops, existingDoc] = await Promise.all([
+                transaction.get(existingQuery),
+                transaction.get(shopRef)
+            ]);
+
+            if (!existingShops.empty || existingDoc.exists) {
+                throw new Error("You have already registered a shop.");
+            }
+
+            transaction.create(shopRef, newShop);
+        });
+    } catch (error) {
+        // ALREADY_EXISTS (gRPC code 6): a concurrent registration won.
+        if (error.code === 6) {
+            throw new Error("You have already registered a shop.");
+        }
+
+        throw error;
+    }
 
     return {
         ...newShop,
@@ -92,21 +110,21 @@ const updateMyShop = async (uid, updateData) => {
 
     const shopDoc = snapshot.docs[0];
 
-    const allowedFields = [
-        "name",
-        "address",
-        "phone",
-        "email",
-        "description"
-    ];
-
-    const cleanData = {};
+    // Only these fields can be changed, each one validated like at registration.
+    const allowedFields = ["name", "address", "phone", "email", "description"];
+    const provided = {};
 
     allowedFields.forEach((field) => {
         if (updateData[field] !== undefined) {
-            cleanData[field] = updateData[field];
+            provided[field] = updateData[field];
         }
     });
+
+    if (provided.email === "" || provided.email === null) {
+        throw new Error("email must be a valid email address.");
+    }
+
+    const cleanData = validateShopFields(provided, { partial: true });
 
     if (Object.keys(cleanData).length === 0) {
         throw new Error("No valid fields provided for update.");

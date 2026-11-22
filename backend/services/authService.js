@@ -20,6 +20,8 @@ const registerUser = async ({ fullName, email, password, role }) => {
             email,
             role,
             status: role === "merchant" ? "pending" : "active",
+            // Bonus EcoPoints, earned when a pickup QR code is validated.
+            ...(role === "student" ? { ecoPoints: 0 } : {}),
             createdAt: FieldValue.serverTimestamp()
         };
 

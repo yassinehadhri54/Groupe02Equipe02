@@ -1,45 +1,19 @@
 
-const axios = require("axios");
 const { db } = require("../config/firebase");
 const { FieldValue, Timestamp } = require("firebase-admin/firestore");
 const konnectConfig = require("../config/konnect");
+const konnect = require("./konnect");
 const notificationService = require("./notificationService");
 
 const paymentsCollection = db.collection("payments");
 const reservationsCollection = db.collection("reservations");
 
-// Konnect payment link lifetime, in minutes (init-payment "lifespan").
-const PAYMENT_LIFESPAN_MINUTES = 10;
-
 // Safety margin after the link expiration before an unpaid Konnect
 // payment is treated as expired.
 const EXPIRATION_GRACE_MS = 5 * 60 * 1000;
 
-// Values documented by Konnect: "wallet", "bank_card", "e-DINAR".
-const ACCEPTED_PAYMENT_METHODS = ["bank_card", "wallet", "e-DINAR"];
-
-// --------------------------------------------------
-// KONNECT CLIENT
-// --------------------------------------------------
-
-const getKonnectClient = () => {
-    if (konnectConfig.mode !== "sandbox") {
-        throw new Error("Konnect Sandbox is not enabled.");
-    }
-
-    if (!konnectConfig.apiKey || !konnectConfig.walletId) {
-        throw new Error("Konnect Sandbox credentials are missing.");
-    }
-
-    return axios.create({
-        baseURL: konnectConfig.baseURL,
-        timeout: 15000,
-        headers: {
-            "x-api-key": konnectConfig.apiKey,
-            "Content-Type": "application/json"
-        }
-    });
-};
+// Reference format of the fake Konnect (mock mode), see services/konnect.js.
+const MOCK_PAYMENT_REF_PATTERN = /^mock_[a-f0-9]{32}$/;
 
 // --------------------------------------------------
 // HELPERS
@@ -73,18 +47,22 @@ const notifyPaymentConfirmed = (payment) => {
 
 // Expiration time in milliseconds: Konnect's expirationDate when available,
 // otherwise the expiresAt stored when the payment was initiated.
+// The later of the two dates is used: Konnect's documentation shows
+// expirationDate as a date without time ("2020-10-15"), which would be read
+// as midnight and close a link the student is still paying with.
 const getExpirationMillis = (payment, providerPayment) => {
+    const candidates = [];
     const providerDate = Date.parse(providerPayment?.expirationDate);
 
     if (Number.isFinite(providerDate)) {
-        return providerDate;
+        candidates.push(providerDate);
     }
 
     if (payment.expiresAt && typeof payment.expiresAt.toMillis === "function") {
-        return payment.expiresAt.toMillis();
+        candidates.push(payment.expiresAt.toMillis());
     }
 
-    return null;
+    return candidates.length ? Math.max(...candidates) : null;
 };
 
 const isPaymentExpired = (payment, providerPayment) => {
@@ -96,6 +74,23 @@ const isPaymentExpired = (payment, providerPayment) => {
     );
 };
 
+// A payment stuck in "initiating" for more than 2 minutes: the server
+// stopped before Konnect answered (the Konnect call times out after 15 s).
+const STALE_INITIATION_MS = 2 * 60 * 1000;
+
+const isStaleInitiation = (payment) => {
+    const createdAt =
+        payment.createdAt && typeof payment.createdAt.toMillis === "function"
+            ? payment.createdAt.toMillis()
+            : null;
+
+    return (
+        payment.status === "initiating" &&
+        createdAt !== null &&
+        Date.now() - createdAt > STALE_INITIATION_MS
+    );
+};
+
 // Close a pending payment (expired or cancelled) and release the
 // reservation so the student can pay again or cancel it.
 const closePendingPayment = async (
@@ -103,7 +98,8 @@ const closePendingPayment = async (
     reservationId,
     paymentStatus,
     reservationPaymentStatus,
-    extraPaymentFields = {}
+    extraPaymentFields = {},
+    expectedStatus = "pending"
 ) => {
     const reservationDocument = reservationsCollection.doc(reservationId);
 
@@ -115,7 +111,7 @@ const closePendingPayment = async (
             throw new Error("Payment not found.");
         }
 
-        if (freshPaymentSnapshot.data().status !== "pending") {
+        if (freshPaymentSnapshot.data().status !== expectedStatus) {
             throw new Error("This payment is not pending.");
         }
 
@@ -157,8 +153,16 @@ const syncKonnectPayment = async (paymentId) => {
 
     const payment = paymentSnapshot.data();
 
-    if (payment.mode !== "sandbox" || !payment.paymentRef) {
-        throw new Error("Invalid Sandbox payment reference.");
+    if (!payment.paymentRef) {
+        throw new Error("Invalid payment reference.");
+    }
+
+    // A payment can only be checked with the provider that created it.
+    if (payment.mode !== konnectConfig.mode) {
+        throw new Error(
+            `This payment was created in ${payment.mode} mode and must be ` +
+            `checked in that mode.`
+        );
     }
 
     if (payment.status === "paid") {
@@ -173,19 +177,9 @@ const syncKonnectPayment = async (paymentId) => {
         throw new Error("This payment is not pending.");
     }
 
-    // Retrieve payment details directly from Konnect
-    const client = getKonnectClient();
-
-    const response = await client.get(
-        `/payments/${encodeURIComponent(payment.paymentRef)}`
-    );
-
-    const providerPayment =
-        response.data?.payment || response.data;
-
-    if (!providerPayment) {
-        throw new Error("Unable to retrieve payment details from Konnect.");
-    }
+    // Retrieve payment details directly from Konnect (or the fake Konnect
+    // in mock mode). The browser or the webhook caller is never trusted.
+    const providerPayment = await konnect.getPayment(payment.paymentRef);
 
     // Konnect uses "pending" both for "not attempted yet" and "failed".
     // Never mark a payment paid unless the provider reports "completed".
@@ -304,10 +298,10 @@ const createPayment = async (studentId, reservationId) => {
         throw new Error("Student ID and reservation ID are required.");
     }
 
-    // Sandbox: refresh this student's pending payments for the reservation
-    // first, so an expired link is closed instead of blocking a new attempt
-    // and a completed one is recorded as paid.
-    if (konnectConfig.mode === "sandbox") {
+    // Refresh this student's pending payments for the reservation first,
+    // so an expired link is closed instead of blocking a new attempt and a
+    // completed one is recorded as paid.
+    {
         const previousPayments = await paymentsCollection
             .where("reservationId", "==", reservationId)
             .where("studentId", "==", studentId)
@@ -316,15 +310,37 @@ const createPayment = async (studentId, reservationId) => {
         for (const doc of previousPayments.docs) {
             const data = doc.data();
 
-            if (data.mode === "sandbox" && data.status === "pending" && data.paymentRef) {
-                try {
+            try {
+                if (
+                    data.mode === konnectConfig.mode &&
+                    data.status === "pending" &&
+                    data.paymentRef
+                ) {
                     await syncKonnectPayment(doc.id);
-                } catch (error) {
-                    console.error(
-                        "Konnect sync before new payment failed:",
-                        error.response?.data || error.message
+                } else if (isStaleInitiation(data)) {
+                    // The server stopped between "initiating" and the
+                    // Konnect answer: release the reservation.
+                    await closePendingPayment(
+                        doc.ref,
+                        data.reservationId,
+                        "failed",
+                        "failed",
+                        { errorMessage: "Payment initiation did not complete." },
+                        "initiating"
                     );
+                } else if (
+                    data.mode !== konnectConfig.mode &&
+                    data.status === "pending" &&
+                    isPaymentExpired(data, null)
+                ) {
+                    // Created before a KONNECT_MOCK switch and now expired.
+                    await closePendingPayment(doc.ref, data.reservationId, "expired", "failed");
                 }
+            } catch (error) {
+                console.error(
+                    "Payment refresh before new payment failed:",
+                    error.response?.data || error.message
+                );
             }
         }
     }
@@ -410,7 +426,7 @@ const createPayment = async (studentId, reservationId) => {
             currency: "TND",
             provider: "konnect",
             mode: konnectConfig.mode,
-            status: konnectConfig.mode === "mock" ? "pending" : "initiating",
+            status: "initiating",
             paymentRef: null,
             payUrl: null,
             expiresAt: null,
@@ -421,8 +437,7 @@ const createPayment = async (studentId, reservationId) => {
         transaction.set(paymentRef, paymentData);
 
         transaction.update(reservationRef, {
-            paymentStatus:
-                konnectConfig.mode === "mock" ? "pending" : "processing",
+            paymentStatus: "processing",
             updatedAt: FieldValue.serverTimestamp()
         });
 
@@ -433,58 +448,33 @@ const createPayment = async (studentId, reservationId) => {
         };
     });
 
-    // Step 2: Mock mode does not contact Konnect
-    if (konnectConfig.mode === "mock" || result.reused) {
+    // Step 2: an existing payment link is reused as is.
+    // (A mock payment created before the test page existed has no link yet:
+    // it gets one below.)
+    if (result.reused && result.payment.payUrl) {
         return {
             ...result.payment,
             paymentId: result.paymentId,
-            reused: result.reused
+            reused: true
         };
     }
 
-    // Step 3: Initiate payment with Konnect Sandbox
+    // Step 3: ask Konnect (or the fake Konnect in mock mode) for a payment
+    // link. Amount in millimes: 6.500 TND -> 6500.
     const paymentDocument = paymentsCollection.doc(result.paymentId);
 
     try {
-        const client = getKonnectClient();
+        const {
+            paymentRef: providerPaymentRef,
+            payUrl,
+            expiresAtMillis
+        } = await konnect.initPayment({
+            amountMillimes: result.payment.amountMillimes,
+            orderId: result.paymentId,
+            description: `CampusSave reservation ${reservationId}`
+        });
 
-        const requestBody = {
-            receiverWalletId: konnectConfig.walletId,
-            amount: result.payment.amountMillimes,
-            token: "TND",
-            type: "immediate",
-            description: `CampusSave reservation ${reservationId}`,
-            acceptedPaymentMethods: ACCEPTED_PAYMENT_METHODS,
-            lifespan: PAYMENT_LIFESPAN_MINUTES,
-            checkoutForm: true,
-            addPaymentFeesToAmount: false,
-            orderId: result.paymentId
-        };
-
-        if (konnectConfig.webhookURL) {
-            requestBody.webhook = konnectConfig.webhookURL;
-        }
-
-        const response = await client.post(
-            "/payments/init-payment",
-            requestBody
-        );
-
-        const providerData = response.data || {};
-
-        const payUrl = providerData.payUrl;
-        const providerPaymentRef =
-            providerData.paymentRef ||
-            providerData.paymentId ||
-            providerData.id;
-
-        if (!payUrl || !providerPaymentRef) {
-            throw new Error("Konnect returned an invalid payment response.");
-        }
-
-        const expiresAt = Timestamp.fromMillis(
-            Date.now() + PAYMENT_LIFESPAN_MINUTES * 60 * 1000
-        );
+        const expiresAt = Timestamp.fromMillis(expiresAtMillis);
 
         await paymentDocument.update({
             status: "pending",
@@ -506,7 +496,7 @@ const createPayment = async (studentId, reservationId) => {
             paymentRef: providerPaymentRef,
             payUrl,
             expiresAt: expiresAt.toDate().toISOString(),
-            reused: false
+            reused: result.reused
         };
 
     } catch (error) {
@@ -539,12 +529,6 @@ const createPayment = async (studentId, reservationId) => {
 // --------------------------------------------------
 
 const verifyKonnectPayment = async (studentId, paymentId) => {
-    if (konnectConfig.mode !== "sandbox") {
-        throw new Error(
-            "Payment verification is only available in Sandbox mode."
-        );
-    }
-
     const paymentSnapshot = await paymentsCollection.doc(paymentId).get();
 
     if (!paymentSnapshot.exists) {
@@ -562,14 +546,11 @@ const verifyKonnectPayment = async (studentId, paymentId) => {
 // KONNECT WEBHOOK
 // Konnect calls GET <webhook>?payment_ref=... with no signature.
 // The notification is only a trigger: the status is always re-fetched
-// from the Konnect API before anything is updated.
+// from the Konnect API (or the fake Konnect in mock mode) before anything
+// is updated.
 // --------------------------------------------------
 
 const handleKonnectWebhook = async (paymentRef) => {
-    if (konnectConfig.mode !== "sandbox") {
-        throw new Error("Konnect webhook is disabled outside Sandbox mode.");
-    }
-
     if (
         typeof paymentRef !== "string" ||
         !/^[A-Za-z0-9_-]{1,64}$/.test(paymentRef)
@@ -628,6 +609,30 @@ const cancelPayment = async (studentId, paymentId) => {
 
     if (payment.status !== "pending") {
         throw new Error("This payment is not pending.");
+    }
+
+    // A Konnect sandbox payment while the server now runs in mock mode:
+    // Konnect cannot be asked, so it can only be closed once its link expired.
+    if (payment.mode !== "mock" && payment.mode !== konnectConfig.mode) {
+        if (!isPaymentExpired(payment, null)) {
+            throw new Error(
+                `This payment was created in ${payment.mode} mode and must be ` +
+                "checked in that mode. Try again after the payment link expires."
+            );
+        }
+
+        await closePendingPayment(
+            paymentDocument,
+            payment.reservationId,
+            "expired",
+            "failed"
+        );
+
+        return {
+            paymentId,
+            status: "expired",
+            message: "Payment link expired. Start a new payment or cancel the reservation."
+        };
     }
 
     if (payment.mode === "mock") {
@@ -750,6 +755,99 @@ const confirmMockPayment = async (studentId, paymentId) => {
 };
 
 // --------------------------------------------------
+// MOCK PAYMENT PAGE (mock mode only)
+// The payUrl of a mock payment opens GET /api/payments/mock-checkout/:ref.
+// The random reference in the URL is the only key: the page is opened by
+// the student's browser, without a Firebase token, like the Konnect page.
+// --------------------------------------------------
+
+const getMockCheckout = async (paymentRef) => {
+    if (!konnect.isMock()) {
+        throw new Error("Mock payments are disabled.");
+    }
+
+    if (
+        typeof paymentRef !== "string" ||
+        !MOCK_PAYMENT_REF_PATTERN.test(paymentRef)
+    ) {
+        throw new Error("Invalid payment reference.");
+    }
+
+    const snapshot = await paymentsCollection
+        .where("paymentRef", "==", paymentRef)
+        .limit(1)
+        .get();
+
+    if (snapshot.empty) {
+        throw new Error("Payment not found.");
+    }
+
+    const paymentDoc = snapshot.docs[0];
+    const payment = paymentDoc.data();
+
+    const reservationSnapshot = await reservationsCollection
+        .doc(payment.reservationId)
+        .get();
+
+    const reservation = reservationSnapshot.exists
+        ? reservationSnapshot.data()
+        : {};
+
+    const expiresAtMillis =
+        payment.expiresAt && typeof payment.expiresAt.toMillis === "function"
+            ? payment.expiresAt.toMillis()
+            : null;
+
+    return {
+        paymentId: paymentDoc.id,
+        paymentRef,
+        reservationId: payment.reservationId,
+        amount: payment.amount,
+        currency: payment.currency || "TND",
+        status: payment.status,
+        expired: expiresAtMillis !== null && Date.now() > expiresAtMillis,
+        offerName: reservation.offerName || null,
+        quantity: reservation.quantity || null,
+        shopName: reservation.shopName || null
+    };
+};
+
+// The student clicked "Payer" on the mock page.
+const payMockCheckout = async (paymentRef) => {
+    const checkout = await getMockCheckout(paymentRef);
+
+    if (checkout.status === "paid") {
+        return checkout;
+    }
+
+    if (checkout.status !== "pending") {
+        throw new Error("This payment is not pending.");
+    }
+
+    if (checkout.expired) {
+        throw new Error("This payment link has expired.");
+    }
+
+    // 1. The fake Konnect records the payment as completed on its side.
+    await konnect.completeMockPayment(paymentRef);
+
+    // 2. It notifies the backend through the webhook, like Konnect does.
+    //    The webhook checks the status again before marking anything paid.
+    try {
+        await konnect.callMockWebhook(paymentRef);
+    } catch (error) {
+        console.error(
+            "Mock webhook call failed, processing directly:",
+            error.response?.data || error.message
+        );
+
+        await handleKonnectWebhook(paymentRef);
+    }
+
+    return getMockCheckout(paymentRef);
+};
+
+// --------------------------------------------------
 // GET PAYMENT BY ID
 // --------------------------------------------------
 
@@ -797,6 +895,8 @@ module.exports = {
     handleKonnectWebhook,
     cancelPayment,
     confirmMockPayment,
+    getMockCheckout,
+    payMockCheckout,
     getPaymentById,
     getMyPayments
 };

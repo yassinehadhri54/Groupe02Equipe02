@@ -1,18 +1,94 @@
-rules_version='2'
+rules_version = '2';
+
+// CampusSave — Firestore security rules (role-based).
+//
+// The Node.js backend uses the Firebase Admin SDK, which is NOT limited by
+// these rules. Every write (registration, shops, offers, reservations,
+// payments, QR codes, notifications) goes through the REST API, which checks
+// the role and ownership. Web and mobile clients may only READ the data they
+// are allowed to see; direct client writes are refused.
+//
+// Deploy: firebase deploy --only firestore:rules
+// Before deploying, make sure no client still writes directly to Firestore
+// (see README, "Règles Firestore").
 
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function profile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isActive() {
+      return signedIn() && profile().status != "suspended";
+    }
+
+    function hasRole(role) {
+      return isActive() && profile().role == role;
+    }
+
+    function isAdmin() {
+      return hasRole("admin");
+    }
+
+    function isShopOwner(shopId) {
+      let shop = get(/databases/$(database)/documents/shops/$(shopId)).data;
+      return isActive() &&
+        (shop.get("ownerId", "") == request.auth.uid ||
+         shop.get("merchantId", "") == request.auth.uid);
+    }
+
+    // Profiles: each user reads their own profile; the admin reads all.
+    match /users/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow write: if false;
+    }
+
+    // Shops: approved shops are public; owners and the admin see the others.
+    match /shops/{shopId} {
+      allow read: if resource.data.status == "approved"
+        || (signedIn() && (resource.data.get("ownerId", "") == request.auth.uid
+                           || resource.data.get("merchantId", "") == request.auth.uid))
+        || isAdmin();
+      allow write: if false;
+    }
+
+    // Offers: public catalogue (the API also hides expired / sold-out offers).
+    match /offers/{offerId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Reservations: the student, the shop owner and the admin.
+    match /reservations/{reservationId} {
+      allow read: if signedIn() && (
+        resource.data.studentId == request.auth.uid
+        || isShopOwner(resource.data.shopId)
+        || isAdmin()
+      );
+      allow write: if false;
+    }
+
+    // Payments: the paying student and the admin.
+    match /payments/{paymentId} {
+      allow read: if signedIn() &&
+        (resource.data.studentId == request.auth.uid || isAdmin());
+      allow write: if false;
+    }
+
+    // Notifications: only their recipient.
+    match /notifications/{notificationId} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow write: if false;
+    }
+
+    // Everything else is closed.
     match /{document=**} {
-      // This rule allows anyone with your database reference to view, edit,
-      // and delete all data in your database. It is useful for getting
-      // started, but it is configured to expire after 30 days because it
-      // leaves your app open to attackers. At that time, all client
-      // requests to your database will be denied.
-      //
-      // Make sure to write security rules for your app before that time, or
-      // else all client requests to your database will be denied until you
-      // update your rules.
-      allow read, write: if request.time < timestamp.date(2026, 12, 16);
+      allow read, write: if false;
     }
   }
 }

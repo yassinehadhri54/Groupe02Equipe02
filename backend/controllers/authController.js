@@ -18,6 +18,25 @@ const register = async (req, res) => {
             });
         }
 
+        // Same rule as the profile update (2 to 100 characters).
+        if (
+            typeof fullName !== "string" ||
+            fullName.trim().length < 2 ||
+            fullName.trim().length > 100
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Full name must contain 2 to 100 characters."
+            });
+        }
+
+        if (typeof email !== "string" || typeof password !== "string") {
+            return res.status(400).json({
+                success: false,
+                message: "Email and password must be texts."
+            });
+        }
+
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
         if (!emailRegex.test(email)) {
@@ -42,7 +61,7 @@ const register = async (req, res) => {
         }
 
         const user = await registerUser({
-            fullName,
+            fullName: fullName.trim(),
             email,
             password,
             role

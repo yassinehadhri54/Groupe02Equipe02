@@ -9,13 +9,20 @@ const paymentController = require("../controllers/paymentController");
 // Must stay above router.use(verifyToken): Konnect sends no Firebase token.
 router.get("/webhook", paymentController.konnectWebhook);
 
+// Mock payment page (KONNECT_MOCK=true only): the payUrl of a mock payment.
+// Public like the Konnect page: opened by the browser, without a token.
+router.get("/mock-checkout/:paymentRef", paymentController.showMockCheckout);
+router.post("/mock-checkout/:paymentRef/pay", paymentController.submitMockCheckout);
+
 // Protect every other payment endpoint
 router.use(verifyToken);
 
-// Student initiates a payment
+// Student initiates a payment: returns payUrl (Konnect page or mock page).
+// "/initiate" is kept for existing clients and the Postman collection.
+router.post("/init", paymentController.initiatePayment);
 router.post("/initiate", paymentController.initiatePayment);
 
-// Student verifies a Sandbox payment
+// Student asks the backend to check the payment status with Konnect
 router.post("/:id/verify", paymentController.verifyPayment);
 
 // Student cancels a pending payment (mock: immediately;
