@@ -1,216 +1,242 @@
 
 const offerService = require("../services/offerService");
 
-// Créer une offre (commerçant)
+// Créer une offre.
 const createOfferController = async (req, res) => {
     try {
-        const {
-            title,
-            description,
-            category,
-            originalPrice,
-            discountedPrice,
-            quantity,
-            imageUrl,
-            pickupStart,
-            pickupEnd,
-            address
-        } = req.body;
+        const body = req.body || {};
 
-        if (
-            !title ||
-            !description ||
-            !category ||
-            originalPrice === undefined ||
-            discountedPrice === undefined ||
-            quantity === undefined
-        ) {
-            return res.status(400).json({
-                success: false,
-                message: "Veuillez remplir tous les champs obligatoires."
-            });
-        }
+        const name = body.name ?? body.title;
+        const discountPrice =
+            body.discountPrice ?? body.discountedPrice;
+        const imageURL = body.imageURL ?? body.imageUrl ?? "";
 
-        if (
-            !Number.isFinite(Number(originalPrice)) ||
-            !Number.isFinite(Number(discountedPrice)) ||
-            Number(originalPrice) <= 0 ||
-            Number(discountedPrice) < 0 ||
-            Number(discountedPrice) >= Number(originalPrice)
-        ) {
-            return res.status(400).json({
-                success: false,
-                message: "Les prix sont invalides."
-            });
-        }
-
-        if (!Number.isInteger(Number(quantity)) || Number(quantity) <= 0) {
-            return res.status(400).json({
-                success: false,
-                message: "La quantité doit être un entier positif."
-            });
-        }
-
-        const offer = await offerService.createOffer({
-            title: String(title).trim(),
-            description: String(description).trim(),
-            category: String(category).trim(),
-            originalPrice: Number(originalPrice),
-            discountedPrice: Number(discountedPrice),
-            quantity: Number(quantity),
-            imageUrl: imageUrl || "",
-            pickupStart: pickupStart || "",
-            pickupEnd: pickupEnd || "",
-            address: address || ""
-        }, req.user.uid);
+        const offer = await offerService.createOffer(
+            req.user.uid,
+            {
+                name,
+                description: body.description,
+                category: body.category,
+                originalPrice: body.originalPrice,
+                discountPrice,
+                quantity: body.quantity,
+                pickupStart: body.pickupStart,
+                pickupEnd: body.pickupEnd,
+                imageURL,
+                address: body.address || ""
+            }
+        );
 
         return res.status(201).json({
             success: true,
-            message: "Offre créée avec succès.",
+            message: "Offer created successfully.",
+            data: offer,
             offer
         });
 
-       } catch (error) {
-        console.error("Create offer error:", error);
+    } catch (error) {
+        console.error("Create offer error:", error.message);
 
-        if (error.message === "MERCHANT_SHOP_NOT_FOUND") {
-            return res.status(404).json({
-                success: false,
-                message: "Aucune boutique n'est associée à votre compte."
-            });
-        }
+        const statusCode =
+            error.message.includes("approved shop") ? 403 : 400;
 
-        if (error.message === "SHOP_NOT_APPROVED") {
-            return res.status(403).json({
-                success: false,
-                message: "Votre boutique doit être approuvée avant de publier des offres."
-            });
-        }
-
-        return res.status(500).json({
+        return res.status(statusCode).json({
             success: false,
-            message: "Erreur lors de la création de l'offre."
+            message: error.message
         });
     }
 };
 
-// Toutes les offres (étudiants et administrateurs)
+// Afficher toutes les offres disponibles.
 const getAllOffersController = async (req, res) => {
     try {
-        const offers = await offerService.getAllOffers();
+        const {
+            category,
+            shopId,
+            maxPrice,
+            q,
+            product,
+            shop
+        } = req.query;
+
+        const textFilters = {
+            category,
+            shopId,
+            q,
+            product,
+            shop
+        };
+
+        for (const [name, value] of Object.entries(textFilters)) {
+            if (
+                value !== undefined &&
+                (typeof value !== "string" || value.length > 100)
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    message: `${name} must be a text of at most 100 characters.`
+                });
+            }
+        }
+
+        if (
+            maxPrice !== undefined &&
+            (
+                !Number.isFinite(Number(maxPrice)) ||
+                Number(maxPrice) < 0
+            )
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid maximum price."
+            });
+        }
+
+        const offers = await offerService.getAllOffers({
+            category,
+            shopId,
+            maxPrice,
+            q,
+            product,
+            shop
+        });
 
         return res.status(200).json({
             success: true,
             count: offers.length,
+            data: offers,
             offers
         });
 
     } catch (error) {
-        console.error("Get offers error:", error);
+        console.error("Get offers error:", error.message);
 
         return res.status(500).json({
             success: false,
-            message: "Erreur lors de la récupération des offres."
+            message: "Could not retrieve offers."
         });
     }
 };
 
-// Offres du commerçant connecté
-const getMyOffersController = async (req, res) => {
+// Afficher une offre par son identifiant.
+const getOfferByIdController = async (req, res) => {
     try {
-        const offers = await offerService.getMerchantOffers(req.user.uid);
-
-        return res.status(200).json({
-            success: true,
-            count: offers.length,
-            offers
-        });
-
-    } catch (error) {
-        console.error("Get merchant offers error:", error);
-
-        return res.status(500).json({
-            success: false,
-            message: "Erreur lors de la récupération de vos offres."
-        });
-    }
-};
-
-// Modifier une offre
-const updateOfferController = async (req, res) => {
-    try {
-        const offer = await offerService.updateOffer(
-            req.params.id,
-            req.user.uid,
-            req.body
-        );
+        const offer = await offerService.getOfferById(req.params.id);
 
         if (!offer) {
             return res.status(404).json({
                 success: false,
-                message: "Offre introuvable."
+                message: "Offer not found."
             });
         }
 
         return res.status(200).json({
             success: true,
-            message: "Offre modifiée avec succès.",
+            data: offer,
             offer
         });
 
     } catch (error) {
-        if (error.message === "FORBIDDEN") {
-            return res.status(403).json({
-                success: false,
-                message: "Vous ne pouvez modifier que vos propres offres."
-            });
-        }
-
-        console.error("Update offer error:", error);
+        console.error("Get offer error:", error.message);
 
         return res.status(500).json({
             success: false,
-            message: "Erreur lors de la modification de l'offre."
+            message: "Could not retrieve offer."
         });
     }
 };
 
-// Supprimer une offre
+// Afficher les offres du commerçant connecté.
+const getMyOffersController = async (req, res) => {
+    try {
+        const offers = await offerService.getMyOffers(req.user.uid);
+
+        return res.status(200).json({
+            success: true,
+            count: offers.length,
+            data: offers,
+            offers
+        });
+
+    } catch (error) {
+        console.error("Get my offers error:", error.message);
+
+        return res.status(500).json({
+            success: false,
+            message: "Could not retrieve your offers."
+        });
+    }
+};
+
+// Modifier une offre.
+const updateOfferController = async (req, res) => {
+    try {
+        const offer = await offerService.updateOffer(
+            req.user.uid,
+            req.params.id,
+            req.body || {}
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "Offer updated successfully.",
+            data: offer,
+            offer
+        });
+
+    } catch (error) {
+        console.error("Update offer error:", error.message);
+
+        let statusCode = 400;
+
+        if (error.message === "Offer not found.") {
+            statusCode = 404;
+        } else if (
+            error.message === "You are not allowed to modify this offer."
+        ) {
+            statusCode = 403;
+        }
+
+        return res.status(statusCode).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+// Supprimer une offre.
 const deleteOfferController = async (req, res) => {
     try {
         const isAdmin = req.user.role === "admin";
 
-        const deleted = await offerService.deleteOffer(
-            req.params.id,
+        const result = await offerService.deleteOffer(
             req.user.uid,
+            req.params.id,
             isAdmin
         );
 
-        if (!deleted) {
-            return res.status(404).json({
-                success: false,
-                message: "Offre introuvable."
-            });
-        }
-
         return res.status(200).json({
             success: true,
-            message: "Offre supprimée avec succès."
+            message: "Offer deleted successfully.",
+            data: result
         });
 
     } catch (error) {
-        if (error.message === "FORBIDDEN") {
-            return res.status(403).json({
-                success: false,
-                message: "Vous ne pouvez supprimer que vos propres offres."
-            });
+        console.error("Delete offer error:", error.message);
+
+        let statusCode = 400;
+
+        if (error.message === "Offer not found.") {
+            statusCode = 404;
+        } else if (
+            error.message === "You are not allowed to delete this offer."
+        ) {
+            statusCode = 403;
         }
 
-        console.error("Delete offer error:", error);
-
-        return res.status(500).json({
+        return res.status(statusCode).json({
             success: false,
-            message: "Erreur lors de la suppression de l'offre."
+            message: error.message
         });
     }
 };
@@ -218,7 +244,16 @@ const deleteOfferController = async (req, res) => {
 module.exports = {
     createOfferController,
     getAllOffersController,
+    getOfferByIdController,
     getMyOffersController,
     updateOfferController,
-    deleteOfferController
+    deleteOfferController,
+
+    // Anciens noms conservés pour compatibilité.
+    createOffer: createOfferController,
+    getAllOffers: getAllOffersController,
+    getOfferById: getOfferByIdController,
+    getMyOffers: getMyOffersController,
+    updateOffer: updateOfferController,
+    deleteOffer: deleteOfferController
 };

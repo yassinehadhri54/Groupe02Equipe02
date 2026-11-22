@@ -5,6 +5,7 @@ const router = express.Router();
 const {
     createOfferController,
     getAllOffersController,
+    getOfferByIdController,
     getMyOffersController,
     updateOfferController,
     deleteOfferController
@@ -12,16 +13,18 @@ const {
 
 const { verifyToken } = require("../middlewares/authMiddleware");
 const { verifyRole } = require("../middlewares/roleMiddleware");
-const { verifyActiveMerchant } = require("../middlewares/activeMerchantMiddleware");
+const {
+    verifyActiveMerchant
+} = require("../middlewares/activeMerchantMiddleware");
 
-// Consulter toutes les offres : utilisateurs connectés
+// Consulter toutes les offres.
 router.get(
     "/",
     verifyToken,
     getAllOffersController
 );
 
-// Consulter ses offres : commerçant approuvé
+// Consulter les offres du commerçant connecté.
 router.get(
     "/my",
     verifyToken,
@@ -29,7 +32,14 @@ router.get(
     getMyOffersController
 );
 
-// Publier une offre : commerçant approuvé
+// Consulter une offre par son identifiant.
+router.get(
+    "/:id",
+    verifyToken,
+    getOfferByIdController
+);
+
+// Publier une offre.
 router.post(
     "/",
     verifyToken,
@@ -37,7 +47,7 @@ router.post(
     createOfferController
 );
 
-// Modifier une offre : commerçant approuvé
+// Modifier une offre.
 router.put(
     "/:id",
     verifyToken,
@@ -45,13 +55,16 @@ router.put(
     updateOfferController
 );
 
-// Supprimer une offre : commerçant approuvé ou administrateur
+// Supprimer une offre : commerçant actif ou administrateur.
 router.delete(
     "/:id",
     verifyToken,
     verifyRole("merchant", "admin"),
     (req, res, next) => {
-        if (req.user.role === "admin") return next();
+        if (req.user.role === "admin") {
+            return next();
+        }
+
         return verifyActiveMerchant(req, res, next);
     },
     deleteOfferController

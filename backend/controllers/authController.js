@@ -1,10 +1,9 @@
 
-const axios = require("axios");
-
 const {
     registerUser,
     loginUser,
-    getUserProfile
+    getUserProfile,
+    logoutUser
 } = require("../services/authService");
 
 // Register
@@ -19,7 +18,7 @@ const register = async (req, res) => {
             shopAddress,
             shopPhone,
             shopDescription
-        } = req.body;
+        } = req.body || {};
 
         if (!fullName || !email || !password || !role) {
             return res.status(400).json({
@@ -37,7 +36,7 @@ const register = async (req, res) => {
             });
         }
 
-        if (password.length < 8) {
+        if (typeof password !== "string" || password.length < 8) {
             return res.status(400).json({
                 success: false,
                 message: "Password must contain at least 8 characters."
@@ -51,13 +50,17 @@ const register = async (req, res) => {
             });
         }
 
-        // Vérifier les informations de la boutique
-        // uniquement pour les commerçants
+        // Shop information is required for merchants.
         if (
             role === "merchant" &&
-            (!shopName?.trim() ||
-             !shopAddress?.trim() ||
-             !shopPhone?.trim())
+            (
+                typeof shopName !== "string" ||
+                !shopName.trim() ||
+                typeof shopAddress !== "string" ||
+                !shopAddress.trim() ||
+                typeof shopPhone !== "string" ||
+                !shopPhone.trim()
+            )
         ) {
             return res.status(400).json({
                 success: false,
@@ -112,7 +115,7 @@ const register = async (req, res) => {
 // Login
 const login = async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { email, password } = req.body || {};
 
         if (!email || !password) {
             return res.status(400).json({
@@ -145,9 +148,19 @@ const login = async (req, res) => {
 
         const firebaseError = error.response?.data?.error?.message;
 
+        if (firebaseError === "USER_DISABLED") {
+            return res.status(403).json({
+                success: false,
+                message: "This account has been suspended."
+            });
+        }
+
         if (
-            ["EMAIL_NOT_FOUND", "INVALID_PASSWORD",
-             "INVALID_LOGIN_CREDENTIALS", "USER_DISABLED"].includes(firebaseError)
+            [
+                "EMAIL_NOT_FOUND",
+                "INVALID_PASSWORD",
+                "INVALID_LOGIN_CREDENTIALS"
+            ].includes(firebaseError)
         ) {
             return res.status(401).json({
                 success: false,
@@ -196,14 +209,33 @@ const getMe = async (req, res) => {
     }
 };
 
+// Logout
+const logout = async (req, res) => {
+    try {
+        const result = await logoutUser(
+            req.user.uid,
+            req.body?.fcmToken
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "Logged out successfully. Sessions on all devices have been revoked.",
+            data: result
+        });
+
+    } catch (error) {
+        console.error("Logout error:", error.message);
+
+        return res.status(500).json({
+            success: false,
+            message: "Logout failed."
+        });
+    }
+};
+
 module.exports = {
     register,
     login,
-    getMe
+    getMe,
+    logout
 };
-
-console.log("Controller exports:", {
-    register: typeof register,
-    login: typeof login,
-    getMe: typeof getMe
-});

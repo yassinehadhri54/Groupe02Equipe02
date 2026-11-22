@@ -23,8 +23,10 @@ const verifyToken = async (req, res, next) => {
             });
         }
 
-        // 3. Verify Firebase ID Token
-        const decodedToken = await auth.verifyIdToken(token);
+        // 3. Verify Firebase ID Token.
+        // checkRevoked = true: tokens issued before a logout
+        // (revokeRefreshTokens) or for a disabled account are refused.
+        const decodedToken = await auth.verifyIdToken(token, true);
 
         // 4. Get user profile from Firestore
         const userDoc = await db.collection("users")
@@ -40,7 +42,16 @@ const verifyToken = async (req, res, next) => {
 
         const userData = userDoc.data();
 
+        // Suspended by an admin (the Firebase account is also disabled).
+        if (userData.status === "suspended") {
+            return res.status(403).json({
+                success: false,
+                message: "This account has been suspended."
+            });
+        }
+
         // 5. Attach user information to request
+        // Pending merchants can authenticate and register their shop.
         req.user = {
             uid: decodedToken.uid,
             email: decodedToken.email,
@@ -52,11 +63,17 @@ const verifyToken = async (req, res, next) => {
         next();
 
     } catch (error) {
-        console.error("Authentication error:", error.message);
+        console.error("Authentication error:", error.code || error.message);
+
+        const messages = {
+            "auth/id-token-expired": "Session expired. Please log in again.",
+            "auth/id-token-revoked": "Session ended (logged out). Please log in again.",
+            "auth/user-disabled": "This account has been disabled."
+        };
 
         return res.status(401).json({
             success: false,
-            message: "Invalid or expired token."
+            message: messages[error.code] || "Invalid or expired token."
         });
     }
 };

@@ -5,13 +5,15 @@ const {
     getAllUsers,
     getPendingMerchants,
     approveMerchant,
-    rejectMerchant
+    rejectMerchant,
+    setUserStatus
 } = require("../services/userService");
 
 // GET connected user's profile
 const getMyProfile = async (req, res) => {
     try {
-        const user = await getUserById(req.user.uid);
+        const uid = req.user.uid || req.user.sub;
+        const user = await getUserById(uid);
 
         return res.status(200).json({
             success: true,
@@ -31,7 +33,8 @@ const getMyProfile = async (req, res) => {
 // UPDATE connected user's profile
 const updateMyProfile = async (req, res) => {
     try {
-        const user = await updateUserProfile(req.user.uid, req.body);
+        const uid = req.user.uid || req.user.sub;
+        const user = await updateUserProfile(uid, req.body || {});
 
         return res.status(200).json({
             success: true,
@@ -147,6 +150,34 @@ const rejectMerchantController = async (req, res) => {
     }
 };
 
+// PUT /api/users/:id/status (Admin only)
+const updateUserStatus = async (req, res) => {
+    try {
+        const uid = req.user.uid || req.user.sub;
+
+        const user = await setUserStatus(
+            uid,
+            req.params.id,
+            req.body?.status
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: user.status === "suspended"
+                ? "User suspended."
+                : "User reactivated.",
+            user
+        });
+    } catch (error) {
+        console.error("Update user status error:", error.message);
+
+        return res.status(error.statusCode || 500).json({
+            success: false,
+            message: error.message || "Failed to update user status."
+        });
+    }
+};
+
 module.exports = {
     getMyProfile,
     updateMyProfile,
@@ -154,5 +185,6 @@ module.exports = {
     getUser,
     getPendingMerchantsController,
     approveMerchantController,
-    rejectMerchantController
+    rejectMerchantController,
+    updateUserStatus
 };

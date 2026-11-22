@@ -2,6 +2,7 @@
 const axios = require("axios");
 const { auth, db } = require("../config/firebase");
 const { FieldValue } = require("firebase-admin/firestore");
+const { removeToken } = require("./notificationService");
 
 // Register
 const registerUser = async ({
@@ -39,7 +40,7 @@ const registerUser = async ({
 
         let createdShopId = null;
 
-        // Créer automatiquement la boutique du commerçant
+        // Create the merchant's shop automatically.
         if (role === "merchant") {
             const shopRef = db.collection("shops").doc();
 
@@ -125,11 +126,38 @@ const getUserProfile = async (uid) => {
         return null;
     }
 
-    return userDoc.data();
+    // Never expose FCM device tokens through the API.
+    const { fcmTokens, ...profile } = userDoc.data();
+
+    return profile;
+};
+
+// Logout
+// Revokes refresh tokens for all devices belonging to this user.
+const logoutUser = async (uid, fcmToken) => {
+    // Remove this device's notification token when provided.
+    if (fcmToken) {
+        try {
+            await removeToken(uid, fcmToken);
+        } catch (error) {
+            console.error(
+                "Logout FCM token removal error:",
+                error.message
+            );
+        }
+    }
+
+    await auth.revokeRefreshTokens(uid);
+
+    return {
+        uid,
+        revokedAt: new Date().toISOString()
+    };
 };
 
 module.exports = {
     registerUser,
     loginUser,
-    getUserProfile
+    getUserProfile,
+    logoutUser
 };

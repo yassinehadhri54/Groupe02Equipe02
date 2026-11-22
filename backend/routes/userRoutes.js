@@ -9,17 +9,18 @@ const {
     getUser,
     getPendingMerchantsController,
     approveMerchantController,
-    rejectMerchantController
+    rejectMerchantController,
+    updateUserStatus
 } = require("../controllers/userController");
 
 const { verifyToken } = require("../middlewares/authMiddleware");
 const { verifyRole } = require("../middlewares/roleMiddleware");
 
-// Connected user
+// Profil de l'utilisateur connecté.
 router.get("/profile", verifyToken, getMyProfile);
 router.put("/profile", verifyToken, updateMyProfile);
 
-// Admin only: merchant management
+// Gestion des commerçants : administrateur uniquement.
 router.get(
     "/merchants/pending",
     verifyToken,
@@ -41,8 +42,27 @@ router.put(
     rejectMerchantController
 );
 
-// Admin only: user management
-router.get("/", verifyToken, verifyRole("admin"), getUsers);
-router.get("/:id", verifyToken, verifyRole("admin"), getUser);
+// Gestion des utilisateurs : administrateur uniquement.
+router.get(
+    "/",
+    verifyToken,
+    verifyRole("admin"),
+    getUsers
+);
+
+router.get(
+    "/:id",
+    verifyToken,
+    verifyRole("admin"),
+    getUser
+);
+
+// Suspendre ou réactiver un utilisateur.
+router.put(
+    "/:id/status",
+    verifyToken,
+    verifyRole("admin"),
+    updateUserStatus
+);
 
 module.exports = router;
