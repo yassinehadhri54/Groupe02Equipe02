@@ -1,9 +1,26 @@
 
 const paymentService = require("../services/paymentService");
+const konnectConfig = require("../config/konnect");
 
 const getUserId = (req) => req.user?.uid || req.user?.userId || null;
 
 const isStudent = (req) => req.user?.role === "student";
+
+const getPaymentConfig = (req, res) => {
+    if (!isStudent(req)) {
+        return res.status(403).json({
+            success: false,
+            message: "Only students can access payment configuration."
+        });
+    }
+
+    return res.status(200).json({
+        success: true,
+        data: {
+            mode: konnectConfig.mode
+        }
+    });
+};
 
 const getErrorStatus = (error) => {
     const message = error.message || "";
@@ -267,6 +284,7 @@ const getMyPayments = async (req, res) => {
 };
 
 module.exports = {
+    getPaymentConfig,
     initiatePayment,
     verifyPayment,
     konnectWebhook,
