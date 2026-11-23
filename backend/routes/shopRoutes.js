@@ -7,12 +7,16 @@ const {
     getMyShop,
     updateMyShop,
     getAllShops,
+    getNearbyShops,
     approveShop,
     rejectShop
 } = require("../controllers/shopController");
 
 const { verifyToken } = require("../middlewares/authMiddleware");
 const { verifyRole } = require("../middlewares/roleMiddleware");
+
+// Bonus Campus Radar: public, like the offer listing
+router.get("/nearby", getNearbyShops);
 
 // Merchant routes
 router.post(

@@ -124,6 +124,9 @@ Module._load = function (request) {
     if (request === "firebase-admin/firestore") return firestoreStub;
     if (request === "axios") return fakeAxios;
     if (request === "./notificationService") return fakeNotif;
+    // E-mail receipts are tested in receipts.test.js.
+    if (request === "./receiptService") return { sendReceiptInBackground() {} };
+    if (request === "../services/receiptService") return { retryReceipt: async () => ({}) };
     if (request === "../middlewares/authMiddleware") return fakeAuth;
     return origLoad.apply(this, arguments);
 };

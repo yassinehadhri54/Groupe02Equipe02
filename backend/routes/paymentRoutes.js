@@ -29,6 +29,9 @@ router.post("/:id/verify", paymentController.verifyPayment);
 // sandbox: only after the Konnect link expired unpaid)
 router.post("/:id/cancel", paymentController.cancelPayment);
 
+// Student asks for the e-mail receipt again (failed or never sent)
+router.post("/:id/receipt/retry", paymentController.retryReceipt);
+
 // Test-only Mock confirmation
 router.post("/:id/confirm-mock", paymentController.confirmMockPayment);
 

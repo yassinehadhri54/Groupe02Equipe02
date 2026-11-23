@@ -10,6 +10,22 @@ const { parsePickupTime } = require("./validation");
 // Statuses that make an offer visible in the public listing.
 const LISTED_OFFER_STATUSES = ["available", "active"];
 
+// Offer types. Bonus "Surprise Basket": a basket of unsold food whose exact
+// content is a surprise. It is an offer like the others (same reservation,
+// payment, QR code and EcoPoints flow), with:
+//   originalPrice = estimated value of the basket
+//   discountPrice = price paid by the student
+//   basketItems   = what the basket may contain (optional list)
+// Offers without offerType (older ones, other clients) are "standard".
+const STANDARD_OFFER = "standard";
+const SURPRISE_BASKET = "surprise_basket";
+const OFFER_TYPES = [STANDARD_OFFER, SURPRISE_BASKET];
+
+const getOfferType = (offer) =>
+    offer?.offerType === SURPRISE_BASKET ? SURPRISE_BASKET : STANDARD_OFFER;
+
+const isSurpriseBasket = (offer) => getOfferType(offer) === SURPRISE_BASKET;
+
 const getOfferOwnerId = (offer) =>
     offer.ownerId ?? offer.merchantId ?? null;
 
@@ -43,12 +59,22 @@ const normalizeOffer = (id, data) => ({
     discountPrice: getOfferDiscountPrice(data),
     imageURL: data.imageURL ?? data.imageUrl ?? "",
     ownerId: getOfferOwnerId(data),
+    offerType: getOfferType(data),
+    isSurpriseBasket: isSurpriseBasket(data),
+    ...(isSurpriseBasket(data)
+        ? { basketItems: Array.isArray(data.basketItems) ? data.basketItems : [] }
+        : {}),
     isExpired: isOfferExpired(data),
     isSoldOut: isOfferSoldOut(data)
 });
 
 module.exports = {
     LISTED_OFFER_STATUSES,
+    STANDARD_OFFER,
+    SURPRISE_BASKET,
+    OFFER_TYPES,
+    getOfferType,
+    isSurpriseBasket,
     getOfferOwnerId,
     getOfferDiscountPrice,
     isOfferExpired,

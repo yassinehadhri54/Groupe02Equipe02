@@ -17,6 +17,8 @@ const isNonEmptyText = (value, maxLength = 100) =>
     value.trim().length > 0 &&
     value.trim().length <= maxLength;
 
+const { parseCoordinates } = require("./geo");
+
 // Pickup hours are stored either as "HH:MM" or as "YYYY-MM-DDTHH:MM"
 // (HTML datetime-local), depending on the client.
 const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -122,11 +124,40 @@ const validateShopFields = (data, { partial = false } = {}) => {
         clean.description = (data.description || "").trim();
     }
 
+    // Bonus Campus Radar: optional position of the shop (both values or none).
+    if (data.latitude !== undefined || data.longitude !== undefined) {
+        Object.assign(clean, parseCoordinates(data.latitude, data.longitude));
+    }
+
     return clean;
+};
+
+// Surprise basket: the list of what the basket may contain.
+// Optional; at most 10 entries of 1 to 60 characters. Returns the cleaned list.
+const MAX_BASKET_ITEMS = 10;
+
+const validateBasketItems = (items) => {
+    if (items === undefined || items === null) {
+        return [];
+    }
+
+    if (!Array.isArray(items) || items.length > MAX_BASKET_ITEMS) {
+        throw new Error(`basketItems must be a list of at most ${MAX_BASKET_ITEMS} texts.`);
+    }
+
+    return items.map((item) => {
+        if (typeof item !== "string" || item.trim().length === 0 || item.trim().length > 60) {
+            throw new Error("Each basket item must be a text of 1 to 60 characters.");
+        }
+
+        return item.trim();
+    });
 };
 
 module.exports = {
     EMAIL_PATTERN,
+    MAX_BASKET_ITEMS,
+    validateBasketItems,
     isHttpUrl,
     isNonEmptyText,
     isOptionalText,

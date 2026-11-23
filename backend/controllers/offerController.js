@@ -1,8 +1,11 @@
 
 const offerService = require("../services/offerService");
+const { OFFER_TYPES, SURPRISE_BASKET } = require("../utils/offerFields");
 
 // Créer une offre
-const createOffer = async (req, res) => {
+// body.offerType = "standard" (default) or "surprise_basket".
+// forcedType is used by POST /api/offers/surprise-baskets.
+const createOffer = async (req, res, forcedType) => {
     try {
         const {
             name,
@@ -13,12 +16,19 @@ const createOffer = async (req, res) => {
             quantity,
             pickupStart,
             pickupEnd,
-            imageURL
+            imageURL,
+            basketItems
         } = req.body || {};
 
+        const offerType =
+            typeof forcedType === "string" ? forcedType : (req.body || {}).offerType;
+
+        // A surprise basket gets a default name and category.
+        const isBasket = offerType === SURPRISE_BASKET;
+
         if (
-            !name ||
-            !category ||
+            (!name && !isBasket) ||
+            (!category && !isBasket) ||
             originalPrice === undefined ||
             discountPrice === undefined ||
             quantity === undefined ||
@@ -66,13 +76,17 @@ const createOffer = async (req, res) => {
                 quantity: qty,
                 pickupStart,
                 pickupEnd,
-                imageURL
+                imageURL,
+                offerType,
+                basketItems
             }
         );
 
         return res.status(201).json({
             success: true,
-            message: "Offer created successfully.",
+            message: isBasket
+                ? "Surprise basket created successfully."
+                : "Offer created successfully.",
             data: offer
         });
 
@@ -89,10 +103,25 @@ const createOffer = async (req, res) => {
     }
 };
 
+// Bonus Surprise Basket: POST /api/offers/surprise-baskets
+const createSurpriseBasket = (req, res) =>
+    createOffer(req, res, SURPRISE_BASKET);
+
 // Afficher toutes les offres disponibles
-const getAllOffers = async (req, res) => {
+// ?type=standard|surprise_basket filters by offer type.
+// forcedType is used by GET /api/offers/surprise-baskets.
+const getAllOffers = async (req, res, forcedType) => {
     try {
         const { category, shopId, q, product, shop } = req.query;
+
+        const type = typeof forcedType === "string" ? forcedType : req.query.type;
+
+        if (type !== undefined && !OFFER_TYPES.includes(type)) {
+            return res.status(400).json({
+                success: false,
+                message: `type must be one of: ${OFFER_TYPES.join(", ")}.`
+            });
+        }
 
         // An empty "max price" box (?maxPrice=) means no price filter,
         // not "free offers only".
@@ -123,6 +152,7 @@ const getAllOffers = async (req, res) => {
         }
 
         const offers = await offerService.getAllOffers({
+            type,
             category,
             shopId,
             maxPrice,
@@ -146,6 +176,10 @@ const getAllOffers = async (req, res) => {
         });
     }
 };
+
+// Bonus Surprise Basket: GET /api/offers/surprise-baskets (same filters)
+const getSurpriseBaskets = (req, res) =>
+    getAllOffers(req, res, SURPRISE_BASKET);
 
 // Afficher une offre par ID
 const getOfferById = async (req, res) => {
@@ -266,7 +300,9 @@ const deleteOffer = async (req, res) => {
 
 module.exports = {
     createOffer,
+    createSurpriseBasket,
     getAllOffers,
+    getSurpriseBaskets,
     getOfferById,
     getMyOffers,
     updateOffer,

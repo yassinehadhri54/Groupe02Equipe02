@@ -5,6 +5,7 @@ const crypto = require("crypto");
 const QRCode = require("qrcode");
 const {
     getOfferDiscountPrice,
+    getOfferType,
     isOfferExpired,
     LISTED_OFFER_STATUSES
 } = require("../utils/offerFields");
@@ -99,6 +100,8 @@ const createReservation = async (studentId, offerId, quantity) => {
             shopId: offer.shopId,
             shopName: shop.name || offer.shopName || "",
             offerName: offer.name || offer.title || offer.offerName || "",
+            // "standard" or "surprise_basket" (bonus Surprise Basket).
+            offerType: getOfferType(offer),
             quantity: requestedQuantity,
             unitPrice,
             totalPrice,

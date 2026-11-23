@@ -2,9 +2,12 @@
 const { db } = require("../config/firebase");
 const { FieldValue } = require("firebase-admin/firestore");
 const { validateShopFields } = require("../utils/validation");
+const { distanceMeters } = require("../utils/geo");
+const { LISTED_OFFER_STATUSES, isOfferBookable, isSurpriseBasket } = require("../utils/offerFields");
 
 const shopsCollection = db.collection("shops");
 const usersCollection = db.collection("users");
+const offersCollection = db.collection("offers");
 
 // Create a new shop
 const createShop = async (uid, rawShopData) => {
@@ -44,6 +47,11 @@ const createShop = async (uid, rawShopData) => {
         phone: shopData.phone,
         email: shopData.email || userData.email,
         description: shopData.description || "",
+
+        // Bonus Campus Radar: position of the shop (optional).
+        ...(shopData.latitude !== undefined
+            ? { latitude: shopData.latitude, longitude: shopData.longitude }
+            : {}),
 
         status: "pending",
         createdAt: FieldValue.serverTimestamp(),
@@ -111,7 +119,7 @@ const updateMyShop = async (uid, updateData) => {
     const shopDoc = snapshot.docs[0];
 
     // Only these fields can be changed, each one validated like at registration.
-    const allowedFields = ["name", "address", "phone", "email", "description"];
+    const allowedFields = ["name", "address", "phone", "email", "description", "latitude", "longitude"];
     const provided = {};
 
     allowedFields.forEach((field) => {
@@ -156,6 +164,62 @@ const getAllShops = async (status) => {
         id: doc.id,
         ...doc.data()
     }));
+};
+
+// Bonus Campus Radar: approved shops within "radiusKm" of a position, nearest
+// first, with their distance and the number of offers that can be reserved now.
+// Public data only (no owner name or e-mail). Shops without a position are
+// not on the radar. withOffers = true keeps only shops with an offer to take.
+const getNearbyShops = async ({ latitude, longitude, radiusKm, limit, withOffers = false }) => {
+    const origin = { latitude, longitude };
+
+    const [shopsSnapshot, offersSnapshot] = await Promise.all([
+        shopsCollection.where("status", "==", "approved").get(),
+        offersCollection.where("status", "in", LISTED_OFFER_STATUSES).get()
+    ]);
+
+    const offersByShop = new Map();
+
+    offersSnapshot.docs.forEach((doc) => {
+        const offer = doc.data();
+
+        if (!offer.shopId || !isOfferBookable(offer)) return;
+
+        const entry = offersByShop.get(offer.shopId) || { count: 0, baskets: 0 };
+        entry.count += 1;
+        if (isSurpriseBasket(offer)) entry.baskets += 1;
+        offersByShop.set(offer.shopId, entry);
+    });
+
+    const radiusMeters = radiusKm * 1000;
+
+    return shopsSnapshot.docs
+        .map((doc) => ({ id: doc.id, ...doc.data() }))
+        .filter((shop) =>
+            Number.isFinite(shop.latitude) && Number.isFinite(shop.longitude)
+        )
+        .map((shop) => {
+            const meters = distanceMeters(origin, shop);
+            const offers = offersByShop.get(shop.id) || { count: 0, baskets: 0 };
+
+            return {
+                shopId: shop.id,
+                name: shop.name || "",
+                address: shop.address || "",
+                phone: shop.phone || "",
+                description: shop.description || "",
+                latitude: shop.latitude,
+                longitude: shop.longitude,
+                distanceMeters: Math.round(meters),
+                distanceKm: Number((meters / 1000).toFixed(2)),
+                offersCount: offers.count,
+                surpriseBasketsCount: offers.baskets
+            };
+        })
+        .filter((shop) => shop.distanceMeters <= radiusMeters)
+        .filter((shop) => !withOffers || shop.offersCount > 0)
+        .sort((a, b) => a.distanceMeters - b.distanceMeters)
+        .slice(0, limit);
 };
 
 // Change a shop's status and its owner's status together (Admin).
@@ -225,6 +289,7 @@ module.exports = {
     getMyShop,
     updateMyShop,
     getAllShops,
+    getNearbyShops,
     approveShop,
     rejectShop
 };

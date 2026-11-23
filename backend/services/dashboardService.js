@@ -3,7 +3,13 @@ const { db } = require("../config/firebase");
 const shopService = require("./shopService");
 const offerService = require("./offerService");
 const reservationService = require("./reservationService");
-const { isOfferBookable, isOfferExpired, normalizeOffer } = require("../utils/offerFields");
+const {
+    OFFER_TYPES,
+    SURPRISE_BASKET,
+    isOfferBookable,
+    isOfferExpired,
+    normalizeOffer
+} = require("../utils/offerFields");
 
 // All statistics are computed from Firestore data at request time.
 // Revenue and spending only count payments marked "paid", which the
@@ -61,6 +67,13 @@ const sortNewestFirst = (items) =>
 
 // Listed = visible to students: listed status, not expired, not sold out.
 const isListedOffer = (offer) => isOfferBookable(offer);
+
+// Bonus Surprise Basket: baskets picked up, from completed reservations.
+// Reservations made before this bonus have no offerType: they are standard.
+const countBaskets = (completedReservations) =>
+    completedReservations
+        .filter((r) => r.offerType === SURPRISE_BASKET)
+        .reduce((sum, r) => sum + toNumber(r.quantity), 0);
 
 const summarizeReservation = (reservation) => ({
     reservationId: reservation.reservationId,
@@ -183,6 +196,7 @@ const getStudentDashboard = async (studentId) => {
             // Counted on completed (picked up) reservations only.
             itemsRescued: completed.reduce((sum, r) => sum + toNumber(r.quantity), 0),
             moneySaved: roundMoney(moneySaved),
+            surpriseBasketsRescued: countBaskets(completed),
             // Completed reservations whose offer no longer exists.
             savingsUnavailableFor
         },
@@ -250,12 +264,14 @@ const getMerchantDashboard = async (merchantId) => {
             listed: offers.filter(isListedOffer).length,
             soldOut: offers.filter((o) => toNumber(o.availableQuantity) <= 0).length,
             expired: offers.filter((o) => isOfferExpired(o)).length,
-            byStatus: countBy(offers, (o) => o.status)
+            byStatus: countBy(offers, (o) => o.status),
+            byType: countBy(offers, (o) => o.offerType, OFFER_TYPES)
         },
         reservations: {
             total: reservations.length,
             byStatus: countBy(reservations, (r) => r.status, RESERVATION_STATUSES)
         },
+        surpriseBasketsSold: countBaskets(completed),
         revenue: {
             // Sum of payments with status "paid" for this merchant's reservations.
             paid: sumPaidByMode([...paidPayments.values()]),
@@ -322,7 +338,12 @@ const getAdminDashboard = async () => {
             // Deleted offers are kept only for the reservation history.
             total: offers.filter((o) => o.status !== "deleted").length,
             listed: offers.filter(isListedOffer).length,
-            byStatus: countBy(offers, (o) => o.status)
+            byStatus: countBy(offers, (o) => o.status),
+            byType: countBy(
+                offers.filter((o) => o.status !== "deleted"),
+                (o) => o.offerType,
+                OFFER_TYPES
+            )
         },
         reservations: {
             total: reservations.length,
@@ -344,6 +365,7 @@ const getAdminDashboard = async () => {
             itemsRescued: completed.reduce((sum, r) => sum + toNumber(r.quantity), 0),
             moneySaved: roundMoney(platformMoneySaved),
             ecoPointsAwarded: completed.reduce((sum, r) => sum + toNumber(r.ecoPointsEarned), 0),
+            surpriseBasketsRescued: countBaskets(completed),
             studentsInvolved: new Set(completed.map((r) => r.studentId)).size
         }
     };

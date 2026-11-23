@@ -3,20 +3,39 @@ const { db } = require("../config/firebase");
 const { FieldValue } = require("firebase-admin/firestore");
 const {
     LISTED_OFFER_STATUSES,
+    OFFER_TYPES,
+    STANDARD_OFFER,
+    SURPRISE_BASKET,
     getOfferOwnerId,
     isOfferBookable,
+    isSurpriseBasket,
     normalizeOffer
 } = require("../utils/offerFields");
 const {
     isHttpUrl,
     isNonEmptyText,
     isOptionalText,
+    validateBasketItems,
     validatePickupWindow
 } = require("../utils/validation");
 
 // A deleted offer is kept (status "deleted") so that its reservations can
 // still be cancelled, rejected or shown in the history.
 const DELETED_STATUS = "deleted";
+
+// Surprise basket defaults and rule: the basket is sold at most at half of
+// its estimated value (originalPrice), so the student always gets a real deal.
+const BASKET_DEFAULT_NAME = "Panier surprise";
+const BASKET_DEFAULT_CATEGORY = "Panier surprise";
+const BASKET_MAX_PRICE_RATIO = 0.5;
+
+const checkBasketPrice = (originalPrice, discountPrice) => {
+    if (discountPrice > originalPrice * BASKET_MAX_PRICE_RATIO) {
+        throw new Error(
+            "A surprise basket must cost at most 50% of its estimated value (originalPrice)."
+        );
+    }
+};
 
 const offersCollection = db.collection("offers");
 const shopsCollection = db.collection("shops");
@@ -40,7 +59,34 @@ const getApprovedShop = async (uid) => {
 };
 
 // Créer une offre
-const createOffer = async (uid, offerData) => {
+const createOffer = async (uid, rawOfferData) => {
+    const offerType = rawOfferData.offerType ?? STANDARD_OFFER;
+
+    if (!OFFER_TYPES.includes(offerType)) {
+        throw new Error(`offerType must be one of: ${OFFER_TYPES.join(", ")}.`);
+    }
+
+    const isBasket = offerType === SURPRISE_BASKET;
+
+    if (!isBasket && rawOfferData.basketItems !== undefined) {
+        throw new Error("basketItems can only be set on a surprise basket.");
+    }
+
+    // A surprise basket gets a default name and category when none is given.
+    const offerData = isBasket
+        ? {
+            ...rawOfferData,
+            name: rawOfferData.name || BASKET_DEFAULT_NAME,
+            category: rawOfferData.category || BASKET_DEFAULT_CATEGORY
+        }
+        : rawOfferData;
+
+    const basketItems = isBasket ? validateBasketItems(offerData.basketItems) : null;
+
+    if (isBasket) {
+        checkBasketPrice(Number(offerData.originalPrice), Number(offerData.discountPrice));
+    }
+
     if (!isNonEmptyText(offerData.name) || !isNonEmptyText(offerData.category)) {
         throw new Error("Name and category must be non-empty texts of at most 100 characters.");
     }
@@ -77,6 +123,9 @@ const createOffer = async (uid, offerData) => {
         pickupEnd: offerData.pickupEnd,
         imageURL: offerData.imageURL || "",
 
+        offerType,
+        ...(isBasket ? { basketItems } : {}),
+
         status: "available",
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp()
@@ -85,7 +134,7 @@ const createOffer = async (uid, offerData) => {
     await offerRef.set(newOffer);
 
     return {
-        ...newOffer,
+        ...normalizeOffer(offerRef.id, newOffer),
         createdAt: null,
         updatedAt: null
     };
@@ -108,6 +157,7 @@ const normalizeText = (value) =>
 //   product  : product name contains
 //   shop     : shop name contains
 //   category : exact category (case-insensitive)
+//   type     : "standard" or "surprise_basket"
 //   shopId, maxPrice
 const getAllOffers = async (filters = {}) => {
     const snapshot = await offersCollection
@@ -138,6 +188,10 @@ const getAllOffers = async (filters = {}) => {
             shopName: shops.get(offer.shopId).name || offer.shopName || ""
         }));
 
+    if (filters.type) {
+        offers = offers.filter((offer) => offer.offerType === filters.type);
+    }
+
     if (filters.category) {
         const category = normalizeText(filters.category);
         offers = offers.filter((offer) => normalizeText(offer.category) === category);
@@ -158,7 +212,13 @@ const getAllOffers = async (filters = {}) => {
 
         offers = offers.filter((offer) => {
             const text = normalizeText(
-                [offer.name, offer.description, offer.category, offer.shopName].join(" ")
+                [
+                    offer.name,
+                    offer.description,
+                    offer.category,
+                    offer.shopName,
+                    ...(offer.basketItems || [])
+                ].join(" ")
             );
             return words.every((word) => text.includes(word));
         });
@@ -238,9 +298,11 @@ const updateOffer = async (uid, offerId, updateData) => {
             "quantity",
             "pickupStart",
             "pickupEnd",
-            "imageURL"
+            "imageURL",
+            "basketItems"
         ];
 
+        // offerType is fixed at creation: it is not in the list above.
         const cleanData = {};
 
         for (const field of allowedFields) {
@@ -255,6 +317,15 @@ const updateOffer = async (uid, offerId, updateData) => {
 
         const rawCurrent = offerDoc.data();
         const current = normalizeOffer(offerDoc.id, rawCurrent);
+        const isBasket = isSurpriseBasket(rawCurrent);
+
+        if (cleanData.basketItems !== undefined) {
+            if (!isBasket) {
+                throw new Error("basketItems can only be set on a surprise basket.");
+            }
+
+            cleanData.basketItems = validateBasketItems(cleanData.basketItems);
+        }
 
         if (cleanData.description !== undefined) {
             if (!isOptionalText(cleanData.description)) {
@@ -329,6 +400,10 @@ const updateOffer = async (uid, offerId, updateData) => {
             throw new Error(
                 "Discount price must be positive and lower than original price."
             );
+        }
+
+        if (isBasket) {
+            checkBasketPrice(finalOriginalPrice, finalDiscountPrice);
         }
 
         // Offers created by another client use other field names: keep those

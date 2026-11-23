@@ -1,5 +1,6 @@
 
 const paymentService = require("../services/paymentService");
+const receiptService = require("../services/receiptService");
 
 const getUserId = (req) => req.user?.uid || req.user?.userId || null;
 
@@ -174,6 +175,37 @@ const cancelPayment = async (req, res) => {
         return res.status(getErrorStatus(error)).json({
             success: false,
             message: error.message || "Unable to cancel payment."
+        });
+    }
+};
+
+// POST /api/payments/:id/receipt/retry
+// Sends the e-mail receipt again when it failed or was never sent.
+const retryReceipt = async (req, res) => {
+    try {
+        if (!isStudent(req)) {
+            return res.status(403).json({
+                success: false,
+                message: "Only students can request their receipt."
+            });
+        }
+
+        const result = await receiptService.retryReceipt(
+            getUserId(req),
+            req.params.id
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: result.message,
+            data: result
+        });
+    } catch (error) {
+        console.error("Retry receipt error:", error.message);
+
+        return res.status(getErrorStatus(error)).json({
+            success: false,
+            message: error.message || "Unable to send the receipt."
         });
     }
 };
@@ -452,6 +484,7 @@ module.exports = {
     verifyPayment,
     konnectWebhook,
     cancelPayment,
+    retryReceipt,
     confirmMockPayment,
     showMockCheckout,
     submitMockCheckout,

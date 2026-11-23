@@ -4,6 +4,7 @@ const { FieldValue, Timestamp } = require("firebase-admin/firestore");
 const konnectConfig = require("../config/konnect");
 const konnect = require("./konnect");
 const notificationService = require("./notificationService");
+const receiptService = require("./receiptService");
 
 const paymentsCollection = db.collection("payments");
 const reservationsCollection = db.collection("reservations");
@@ -267,6 +268,8 @@ const syncKonnectPayment = async (paymentId) => {
             status: "paid",
             providerStatus: providerPayment.status,
             paidAt: FieldValue.serverTimestamp(),
+            // The e-mail receipt is owed from this moment (see receiptService).
+            receiptEmailStatus: "pending",
             updatedAt: FieldValue.serverTimestamp()
         });
 
@@ -280,6 +283,7 @@ const syncKonnectPayment = async (paymentId) => {
 
     if (justPaid) {
         notifyPaymentConfirmed(payment);
+        receiptService.sendReceiptInBackground(paymentId);
     }
 
     return {
@@ -732,6 +736,7 @@ const confirmMockPayment = async (studentId, paymentId) => {
         transaction.update(paymentDocument, {
             status: "paid",
             paidAt: FieldValue.serverTimestamp(),
+            receiptEmailStatus: "pending",
             updatedAt: FieldValue.serverTimestamp()
         });
 
@@ -745,6 +750,7 @@ const confirmMockPayment = async (studentId, paymentId) => {
 
     if (justPaid) {
         notifyPaymentConfirmed(payment);
+        receiptService.sendReceiptInBackground(paymentId);
     }
 
     return {
