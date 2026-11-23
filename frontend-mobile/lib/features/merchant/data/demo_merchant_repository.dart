@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../models/merchant_dashboard_stats.dart';
 import '../models/merchant_offer.dart';
 import '../models/merchant_order.dart';
 
@@ -11,18 +12,6 @@ abstract interface class MerchantRepository implements Listenable {
   Future<void> addOffer(MerchantOffer offer);
   Future<void> updateOffer(MerchantOffer offer);
   Future<void> deactivateOffer(String offerId);
-}
-
-class MerchantDashboardStats {
-  const MerchantDashboardStats({
-    required this.activeOfferCount,
-    required this.orderCount,
-    required this.revenue,
-  });
-
-  final int activeOfferCount;
-  final int orderCount;
-  final double revenue;
 }
 
 class DemoMerchantRepository extends ChangeNotifier
@@ -53,7 +42,7 @@ class DemoMerchantRepository extends ChangeNotifier
               order.status == MerchantOrderStatus.confirmed ||
               order.status == MerchantOrderStatus.completed,
         )
-        .fold<double>(0, (total, order) => total + order.totalPrice);
+        .fold<double>(0, (total, order) => total + (order.totalPrice ?? 0));
 
     return MerchantDashboardStats(
       activeOfferCount: activeOfferCount,

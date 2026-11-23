@@ -63,9 +63,14 @@ void main() {
       );
 
       expect(diagnosticLogs, hasLength(1));
+      expect(diagnosticLogs.single, contains('outcome=network_error'));
       expect(diagnosticLogs.single, contains('exceptionType=SocketException'));
       expect(diagnosticLogs.single, contains('durationMs='));
       expect(diagnosticLogs.single, contains('httpStatus=none'));
+      expect(
+        diagnosticLogs.single,
+        contains('endpoint=http://10.0.2.2:5000/api/auth/register'),
+      );
       expect(diagnosticLogs.single, isNot(contains('student@example.com')));
       expect(diagnosticLogs.single, isNot(contains('securepass123')));
     },
@@ -105,6 +110,71 @@ void main() {
     expect(diagnosticLogs.single, isNot(contains('student@example.com')));
     expect(diagnosticLogs.single, isNot(contains('securepass123')));
   });
+
+  test(
+    'registration distinguishes a timeout from a network or HTTP error',
+    () async {
+      var attempts = 0;
+      final repository = AuthRepository(
+        client: MockClient((_) async {
+          attempts++;
+          throw TimeoutException('Simulated timeout');
+        }),
+      );
+
+      await expectLater(
+        repository.register(
+          fullName: 'CampusSave Student',
+          email: 'student@example.com',
+          password: 'securepass123',
+        ),
+        throwsA(
+          isA<AuthException>()
+              .having(
+                (error) => error.message,
+                'message',
+                contains('pas répondu à temps'),
+              )
+              .having((error) => error.statusCode, 'HTTP status', isNull)
+              .having((error) => error.retryable, 'retry action', isFalse),
+        ),
+      );
+      expect(attempts, 1);
+    },
+  );
+
+  for (final (code, body, message) in [
+    (201, '[]', 'Réponse invalide du serveur.'),
+    (201, '{"success":true,"user":{}}', 'Réponse invalide du serveur.'),
+    (400, '{"message":42}', 'Le serveur a retourné une erreur (400).'),
+    (409, 'Conflict', 'Cette adresse e-mail est déjà utilisée.'),
+    (
+      500,
+      '<html>Internal Server Error</html>',
+      'Une erreur serveur est survenue.',
+    ),
+  ]) {
+    test(
+      'registration keeps HTTP $code with an unexpected response body',
+      () async {
+        final repository = AuthRepository(
+          client: MockClient((_) async => http.Response(body, code)),
+        );
+        await expectLater(
+          repository.register(
+            fullName: 'CampusSave Student',
+            email: 'student@example.com',
+            password: 'securepass123',
+          ),
+          throwsA(
+            isA<AuthException>()
+                .having((error) => error.statusCode, 'HTTP status', code)
+                .having((error) => error.message, 'message', contains(message)),
+          ),
+        );
+      },
+    );
+  }
 
   Future<void> showRegister(
     WidgetTester tester,
@@ -152,6 +222,39 @@ void main() {
     await tester.pump();
     await tester.ensureVisible(find.byKey(const ValueKey('register-submit')));
   }
+
+  testWidgets(
+    'merchant signup sends merchant role and explains the next step',
+    (tester) async {
+      late http.Request sent;
+      final repository = AuthRepository(
+        tokenStore: _MemoryAuthTokenStore(),
+        client: MockClient((request) async {
+          sent = request;
+          return http.Response(
+            '{"success":true,"user":{"uid":"merchant-1","email":"student@example.com",'
+            '"fullName":"CampusSave Student","role":"merchant","status":"pending"}}',
+            201,
+          );
+        }),
+      );
+      await showRegister(tester, repository, fromLogin: true);
+      await tester.tap(find.byKey(const ValueKey('register-role')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Commerçant').last);
+      await tester.pumpAndSettle();
+      await fillValidForm(tester);
+      await tester.tap(find.byKey(const ValueKey('register-submit')));
+      await tester.pumpAndSettle();
+      expect(sent.url.path, '/api/auth/register');
+      expect(jsonDecode(sent.body)['role'], 'merchant');
+      expect(find.byType(LoginScreen), findsOneWidget);
+      expect(
+        find.text('Compte créé. Connecte-toi pour inscrire ton commerce.'),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets('register sends expected JSON and returns to login on HTTP 201', (
     WidgetTester tester,

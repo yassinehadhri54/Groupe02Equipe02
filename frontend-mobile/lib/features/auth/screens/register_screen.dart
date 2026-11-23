@@ -24,6 +24,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _hidePassword = true;
   bool _hideConfirmPassword = true;
   bool _isLoading = false;
+  String _role = 'student';
   late final AuthRepository _authRepository =
       widget.authRepository ?? AuthRepository();
 
@@ -46,11 +47,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
         fullName: _nameController.text.trim(),
         email: _emailController.text.trim(),
         password: _passwordController.text,
+        role: _role,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Compte créé. Tu peux maintenant te connecter.'),
+        SnackBar(
+          content: Text(
+            _role == 'merchant'
+                ? 'Compte créé. Connecte-toi pour inscrire ton commerce.'
+                : 'Compte créé. Tu peux maintenant te connecter.',
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -154,6 +160,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
             SizedBox(height: compact ? 18 : 28),
 
             // Nom complet.
+            DropdownButtonFormField<String>(
+              key: const ValueKey('register-role'),
+              initialValue: _role,
+              decoration: _inputDecoration(
+                'Type de compte',
+                Icons.person_outline,
+              ),
+              items: const [
+                DropdownMenuItem(value: 'student', child: Text('Étudiant')),
+                DropdownMenuItem(value: 'merchant', child: Text('Commerçant')),
+              ],
+              onChanged: _isLoading
+                  ? null
+                  : (role) => setState(() => _role = role ?? 'student'),
+            ),
+            SizedBox(height: compact ? 12 : 16),
             TextFormField(
               key: const ValueKey('register-name'),
               controller: _nameController,

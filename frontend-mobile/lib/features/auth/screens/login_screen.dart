@@ -2,10 +2,8 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/network/auth_repository.dart';
-import '../../../core/widgets/main_navigation.dart';
-import '../../../features/merchant/screens/merchant_dashboard_screen.dart';
+import '../session_destination.dart';
 import '../widgets/auth_screen_layout.dart';
-import 'account_status_screen.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -45,7 +43,7 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       await _authRepository.saveSession(session);
       if (!mounted) return;
-      final destination = _destinationForSession(session);
+      final destination = sessionDestination(_authRepository, session);
       Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(builder: (_) => destination),
       );
@@ -57,31 +55,6 @@ class _LoginScreenState extends State<LoginScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
-  }
-
-  Widget _destinationForSession(AuthSession session) {
-    final user = session.user;
-    if (user.role == 'student' && user.status == 'active') {
-      return MainNavigation(authRepository: _authRepository);
-    }
-    if (user.role == 'merchant' && user.status == 'active') {
-      return MerchantDashboardScreen();
-    }
-    if (user.role == 'merchant' && user.status == 'pending') {
-      return AccountStatusScreen(
-        title: 'Compte en attente',
-        message:
-            'Votre compte commerçant est en attente de validation par un administrateur.',
-        pending: true,
-        authRepository: _authRepository,
-      );
-    }
-    return AccountStatusScreen(
-      title: 'Accès refusé',
-      message:
-          'Votre compte est désactivé ou votre rôle n’est pas autorisé.',
-      authRepository: _authRepository,
-    );
   }
 
   void _showComingSoon(String message) {

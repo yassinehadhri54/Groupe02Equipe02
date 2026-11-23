@@ -49,7 +49,7 @@ class Booking {
       totalPrice: totalPrice,
       status: _stringValue(json['status'])?.toLowerCase() ?? 'unknown',
       paymentStatus: _stringValue(json['paymentStatus'])?.toLowerCase(),
-      createdAt: _dateTimeValue(json['createdAt']),
+      createdAt: parseCreatedAt(json['createdAt']),
     );
   }
 
@@ -82,8 +82,9 @@ class Booking {
     ReservationStatus.unknown => status,
   };
 
-  String? get paymentStatusLabel {
-    final value = paymentStatus;
+  String? get paymentStatusLabel => paymentLabelFor(paymentStatus);
+
+  static String? paymentLabelFor(String? value) {
     if (value == null) return null;
     return switch (value) {
       'unpaid' => 'Non payé',
@@ -131,7 +132,7 @@ class Booking {
     return value is String ? int.tryParse(value) : null;
   }
 
-  static DateTime? _dateTimeValue(Object? value) {
+  static DateTime? parseCreatedAt(Object? value) {
     if (value is DateTime) return value;
     if (value is String) return DateTime.tryParse(value);
     if (value is num) {

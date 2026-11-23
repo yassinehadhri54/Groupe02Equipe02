@@ -18,6 +18,7 @@ class ShopOffer {
     this.status,
     this.isExpired,
     this.isSoldOut,
+    this.adminDisabled = false,
   });
 
   factory ShopOffer.fromJson(Map<String, dynamic> json) {
@@ -41,12 +42,14 @@ class ShopOffer {
       ),
       quantity: _intValue(json['quantity']),
       availableQuantity: _intValue(json['availableQuantity']),
-      imageUrl: _stringValue(json['imageURL']) ?? _stringValue(json['imageUrl']),
+      imageUrl:
+          _stringValue(json['imageURL']) ?? _stringValue(json['imageUrl']),
       pickupStart: _stringValue(json['pickupStart']),
       pickupEnd: _stringValue(json['pickupEnd']),
       status: _stringValue(json['status']),
       isExpired: _boolValue(json['isExpired']),
       isSoldOut: _boolValue(json['isSoldOut']),
+      adminDisabled: json['adminDisabled'] == true,
     );
   }
 
@@ -66,8 +69,10 @@ class ShopOffer {
   final String? status;
   final bool? isExpired;
   final bool? isSoldOut;
+  final bool adminDisabled;
 
   bool get isUnavailable =>
+      adminDisabled ||
       isExpired == true ||
       isSoldOut == true ||
       (availableQuantity != null && availableQuantity! <= 0) ||

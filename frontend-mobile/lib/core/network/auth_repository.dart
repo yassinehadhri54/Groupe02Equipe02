@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -368,47 +369,50 @@ class AuthRepository {
     return null;
   }
 
-  Future<AuthSession> login({
-    required String email,
-    required String password,
-  }) async {
-    final response = await _post('/api/auth/login', {
-      'email': email,
-      'password': password,
+  Future<AuthSession> login({required String email, required String password}) {
+    return _post('/api/auth/login', {'email': email, 'password': password}, (
+      data,
+    ) {
+      final tokens = data['tokens'] as Map<String, dynamic>;
+      return AuthSession(
+        user: AuthUser.fromJson(data['user'] as Map<String, dynamic>),
+        idToken: tokens['idToken'] as String,
+        refreshToken: tokens['refreshToken'] as String,
+      );
     });
-
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
-    final user = AuthUser.fromJson(data['user'] as Map<String, dynamic>);
-    final tokens = data['tokens'] as Map<String, dynamic>;
-
-    return AuthSession(
-      user: user,
-      idToken: tokens['idToken'] as String,
-      refreshToken: tokens['refreshToken'] as String,
-    );
   }
 
   Future<AuthUser> register({
     required String fullName,
     required String email,
     required String password,
-  }) async {
-    final response = await _post('/api/auth/register', {
-      'fullName': fullName,
-      'email': email,
-      'password': password,
-      'role': 'student',
-    }, diagnoseRegistration: true);
-
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
-    return AuthUser.fromJson(data['user'] as Map<String, dynamic>);
+    String role = 'student',
+  }) {
+    return _post(
+      '/api/auth/register',
+      {
+        'fullName': fullName,
+        'email': email,
+        'password': password,
+        'role': role,
+      },
+      (data) => AuthUser.fromJson(data['user'] as Map<String, dynamic>),
+      diagnoseRegistration: true,
+    );
   }
 
-  Future<http.Response> _post(
+  Future<T> _post<T>(
     String path,
-    Map<String, dynamic> body, {
+    Map<String, dynamic> body,
+    T Function(Map<String, dynamic>) decode, {
     bool diagnoseRegistration = false,
   }) async {
+    final uri = Uri.tryParse('$_baseUrl$path');
+    if (uri == null ||
+        (uri.scheme != 'http' && uri.scheme != 'https') ||
+        uri.host.isEmpty) {
+      throw const AuthException('L’adresse API de CampusSave est invalide.');
+    }
     final stopwatch = Stopwatch()..start();
     int? statusCode;
 
@@ -421,31 +425,33 @@ class AuthRepository {
       debugPrint(
         '[AuthRepository.register] outcome=$outcome '
         'durationMs=${stopwatch.elapsedMilliseconds} '
-        'httpStatus=${statusCode ?? 'none'}$exception',
+        'httpStatus=${statusCode ?? 'none'}$exception '
+        'endpoint=${uri.scheme}://${uri.host}:${uri.port}$path',
       );
     }
 
     try {
       final response = await _client
           .post(
-            Uri.parse('$_baseUrl$path'),
+            uri,
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode(body),
           )
           .timeout(const Duration(seconds: 15));
 
       statusCode = response.statusCode;
-      final data = response.body.isEmpty
-          ? <String, dynamic>{}
-          : jsonDecode(response.body) as Map<String, dynamic>;
-
       if (response.statusCode >= 200 && response.statusCode < 300) {
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
+        if (data is! Map<String, dynamic>) {
+          throw const FormatException('Objet JSON attendu.');
+        }
+        final result = decode(data);
         logDiagnostic(outcome: 'response');
-        return response;
+        return result;
       }
 
       throw AuthException(
-        _errorMessage(response.statusCode, data['message'] as String?),
+        _errorMessage(response.statusCode, _messageFromResponse(response)),
         statusCode: response.statusCode,
       );
     } on AuthException catch (error) {
@@ -454,15 +460,31 @@ class AuthRepository {
         exceptionType: error.runtimeType.toString(),
       );
       rethrow;
-    } on FormatException catch (error) {
+    } on TimeoutException catch (error) {
       logDiagnostic(
-        outcome: 'invalid_response',
+        outcome: 'timeout',
         exceptionType: error.runtimeType.toString(),
       );
-      throw const AuthException('Réponse invalide du serveur.');
+      throw AuthException(
+        diagnoseRegistration
+            ? 'Le serveur n’a pas répondu à temps. Vérifie si ton compte existe avant de réessayer.'
+            : 'Le serveur n’a pas répondu à temps. Réessaie dans un instant.',
+      );
     } catch (error) {
+      if (error is FormatException ||
+          error is TypeError ||
+          statusCode != null) {
+        logDiagnostic(
+          outcome: 'invalid_response',
+          exceptionType: error.runtimeType.toString(),
+        );
+        throw AuthException(
+          'Réponse invalide du serveur.',
+          statusCode: statusCode,
+        );
+      }
       logDiagnostic(
-        outcome: 'exception',
+        outcome: 'network_error',
         exceptionType: error.runtimeType.toString(),
       );
       throw const AuthException(
@@ -473,6 +495,11 @@ class AuthRepository {
   }
 
   String _errorMessage(int statusCode, String? message) {
+    if (statusCode == 401) return 'Adresse e-mail ou mot de passe incorrect.';
+    if (statusCode == 403) {
+      return 'Ce compte est désactivé ou son accès est refusé.';
+    }
+
     if (statusCode == 409) {
       return 'Cette adresse e-mail est déjà utilisée.';
     }

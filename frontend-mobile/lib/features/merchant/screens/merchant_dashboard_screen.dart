@@ -1,15 +1,29 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../../../core/network/auth_repository.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../auth/screens/login_screen.dart';
 import '../data/demo_merchant_repository.dart';
+import '../data/merchant_api_repository.dart';
+import '../models/merchant_dashboard_stats.dart';
 import '../models/merchant_order.dart';
+import '../models/merchant_shop.dart';
+import '../widgets/merchant_order_card.dart';
 import 'create_offer_screen.dart';
 import 'merchant_offers_screen.dart';
+import 'merchant_reservations_screen.dart';
+import 'merchant_shop_screen.dart';
+import 'verify_pickup_screen.dart';
 
 class MerchantDashboardScreen extends StatefulWidget {
-  const MerchantDashboardScreen({super.key, this.repository});
+  const MerchantDashboardScreen({
+    super.key,
+    this.repository,
+    this.authRepository,
+  }) : assert(repository != null || authRepository != null);
 
   final MerchantRepository? repository;
+  final AuthRepository? authRepository;
 
   @override
   State<MerchantDashboardScreen> createState() =>
@@ -17,49 +31,184 @@ class MerchantDashboardScreen extends StatefulWidget {
 }
 
 class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
-  final _ordersSectionKey = GlobalKey();
-
-  MerchantRepository get _repository =>
-      widget.repository ?? DemoMerchantRepository.shared;
+  MerchantRepository get _repository => widget.repository!;
+  late final _api = MerchantApiRepository(widget.authRepository!);
+  late Future<MerchantShop?> _shop = _api.getShop();
+  Future<MerchantDashboardStats>? _dashboard;
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _repository,
-      builder: (context, _) => Scaffold(
-        key: const ValueKey('merchant-dashboard-screen'),
-        backgroundColor: AppTheme.cream,
-        body: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final contentWidth = constraints.maxWidth > 900
-                  ? 860.0
-                  : constraints.maxWidth;
+    final repository = widget.repository;
+    return repository == null
+        ? _buildPage(context)
+        : AnimatedBuilder(
+            animation: repository,
+            builder: (context, _) => _buildPage(context),
+          );
+  }
 
-              return Center(
-                child: SizedBox(
-                  width: contentWidth,
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _buildHeader(context),
-                        const SizedBox(height: 22),
-                        _buildStatistics(context),
-                        const SizedBox(height: 26),
-                        _buildQuickActions(context),
+  Widget _buildPage(BuildContext context) {
+    return Scaffold(
+      key: const ValueKey('merchant-dashboard-screen'),
+      backgroundColor: AppTheme.cream,
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final contentWidth = constraints.maxWidth > 900
+                ? 860.0
+                : constraints.maxWidth;
+
+            return Center(
+              child: SizedBox(
+                width: contentWidth,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _buildHeader(context),
+                      const SizedBox(height: 22),
+                      if (widget.repository == null)
+                        _buildShop(context)
+                      else ...[
+                        _buildStatistics(context, _repository.statistics),
                         const SizedBox(height: 28),
-                        _buildOrdersSection(context),
+                        _buildOrdersSection(
+                          context,
+                          _demoRecentOrders(),
+                          _repository.orders.length,
+                        ),
                       ],
-                    ),
+                    ],
                   ),
                 ),
-              );
-            },
-          ),
+              ),
+            );
+          },
         ),
       ),
+    );
+  }
+
+  void _reloadShop() {
+    setState(() {
+      _shop = _api.getShop();
+      _dashboard = null;
+    });
+  }
+
+  Future<void> _editShop(MerchantShop? shop) async {
+    final updated = await Navigator.of(context).push<MerchantShop>(
+      MaterialPageRoute(
+        builder: (_) => MerchantShopScreen(repository: _api, shop: shop),
+      ),
+    );
+    if (!mounted || updated == null) return;
+    setState(() {
+      _shop = Future.value(updated);
+    });
+  }
+
+  Future<void> _logout() async {
+    final auth = widget.authRepository!;
+    await auth.clearSession();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute<void>(
+        builder: (_) => LoginScreen(authRepository: auth),
+      ),
+      (_) => false,
+    );
+  }
+
+  Widget _buildShop(BuildContext context) {
+    return FutureBuilder<MerchantShop?>(
+      future: _shop,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          final error = snapshot.error;
+          return Column(
+            children: [
+              Text(
+                error is AuthException
+                    ? error.message
+                    : 'Impossible de charger le commerce.',
+              ),
+              if (error is! AuthException || error.statusCode != 401)
+                TextButton(
+                  onPressed: _reloadShop,
+                  child: const Text('Réessayer'),
+                ),
+            ],
+          );
+        }
+
+        final shop = snapshot.data;
+        if (shop == null) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('Inscris ton commerce pour demander sa validation.'),
+              const SizedBox(height: 10),
+              FilledButton(
+                onPressed: () => _editShop(null),
+                child: const Text('Inscrire mon commerce'),
+              ),
+            ],
+          );
+        }
+
+        final status = switch (shop.status) {
+          'approved' => 'Commerce approuvé',
+          'pending' => 'En attente de validation',
+          'rejected' => 'Commerce refusé',
+          'suspended' => 'Commerce suspendu',
+          _ => 'Statut indisponible',
+        };
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      shop.name,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    Text(status),
+                    if (shop.address.isNotEmpty) Text(shop.address),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      children: [
+                        TextButton(
+                          onPressed: () => _editShop(shop),
+                          child: const Text('Modifier le commerce'),
+                        ),
+                        TextButton(
+                          onPressed: _reloadShop,
+                          child: const Text('Actualiser le statut'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (shop.status == 'approved') ...[
+              const SizedBox(height: 26),
+              _buildQuickActions(context),
+              const SizedBox(height: 26),
+              _buildDashboard(context),
+            ],
+          ],
+        );
+      },
     );
   }
 
@@ -104,23 +253,31 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
                   ),
                 ),
               ),
-              IconButton(
-                key: const ValueKey('merchant-notifications'),
-                tooltip: 'Notifications',
-                onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'Aucune nouvelle notification pour le moment.',
+              if (widget.repository == null)
+                IconButton(
+                  tooltip: 'Se déconnecter',
+                  onPressed: _logout,
+                  color: Colors.white,
+                  icon: const Icon(Icons.logout_rounded),
+                )
+              else
+                IconButton(
+                  key: const ValueKey('merchant-notifications'),
+                  tooltip: 'Notifications',
+                  onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Aucune nouvelle notification pour le moment.',
+                      ),
+                      behavior: SnackBarBehavior.floating,
                     ),
-                    behavior: SnackBarBehavior.floating,
                   ),
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.white.withValues(alpha: 0.12),
+                    foregroundColor: Colors.white,
+                  ),
+                  icon: const Icon(Icons.notifications_none_rounded),
                 ),
-                style: IconButton.styleFrom(
-                  backgroundColor: Colors.white.withValues(alpha: 0.12),
-                  foregroundColor: Colors.white,
-                ),
-                icon: const Icon(Icons.notifications_none_rounded),
-              ),
             ],
           ),
           const SizedBox(height: 19),
@@ -140,13 +297,146 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
     );
   }
 
-  Widget _buildStatistics(BuildContext context) {
-    final statistics = _repository.statistics;
+  Widget _buildDashboard(BuildContext context) {
+    return FutureBuilder<MerchantDashboardStats>(
+      future: _dashboard ??= _api.getDashboard(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          final error = snapshot.error;
+          return Column(
+            children: [
+              Text(
+                error is AuthException
+                    ? error.message
+                    : 'Impossible de charger les statistiques.',
+              ),
+              if (error is! AuthException || error.statusCode != 401)
+                TextButton(
+                  onPressed: _reloadDashboard,
+                  child: const Text('Réessayer'),
+                ),
+            ],
+          );
+        }
+
+        final stats = snapshot.requireData;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: _reloadDashboard,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Actualiser les statistiques'),
+              ),
+            ),
+            _buildStatistics(context, stats),
+            if (stats.revenueByMode.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final entry in stats.revenueByMode.entries)
+                    Chip(
+                      label: Text(
+                        '${_paymentModeLabel(entry.key)} · ${entry.value.toStringAsFixed(3)} DT',
+                      ),
+                    ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 24),
+            _buildTopOffers(context, stats.topOffers),
+            const SizedBox(height: 24),
+            _buildOrdersSection(
+              context,
+              stats.recentReservations,
+              stats.orderCount,
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  String _paymentModeLabel(String mode) => switch (mode) {
+    'mock' => 'Mock',
+    'sandbox' => 'Sandbox',
+    _ => 'Autre mode',
+  };
+
+  void _reloadDashboard() {
+    setState(() {
+      _dashboard = null;
+    });
+  }
+
+  Future<void> _openActivity(Widget Function(VoidCallback) screen) async {
+    var changed = false;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => screen(() {
+          changed = true;
+        }),
+      ),
+    );
+    if (mounted && changed) _reloadDashboard();
+  }
+
+  Future<void> _createOffer() async {
+    final created = await Navigator.of(context).push<Object>(
+      MaterialPageRoute(builder: (_) => CreateOfferScreen(repository: _api)),
+    );
+    if (mounted && created != null) _reloadDashboard();
+  }
+
+  Widget _buildTopOffers(BuildContext context, List<MerchantTopOffer> offers) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Meilleures offres',
+          style: Theme.of(context).textTheme.titleLarge
+              ?.copyWith(color: AppTheme.ink, fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 12),
+        if (offers.isEmpty) const Text('Aucune offre classée pour le moment.'),
+        for (final offer in offers)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Card(
+              child: ListTile(
+                title: Text(offer.name.isEmpty ? 'Offre sans nom' : offer.name),
+                subtitle: Text(
+                  '${offer.reservations} réservation(s) · '
+                  '${offer.quantityReserved} portion(s) réservée(s) · '
+                  '${offer.paidRevenue.toStringAsFixed(3)} DT payés',
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildStatistics(
+    BuildContext context,
+    MerchantDashboardStats statistics,
+  ) {
+    final offerCount = statistics.offerCount;
     final values = [
       _StatisticData(
-        key: const ValueKey('merchant-stat-active-offers'),
-        label: 'Offres actives',
-        value: '${statistics.activeOfferCount}',
+        key: ValueKey(
+          offerCount == null
+              ? 'merchant-stat-active-offers'
+              : 'merchant-stat-offers',
+        ),
+        label: offerCount == null ? 'Offres actives' : 'Offres au total',
+        value: '${offerCount ?? statistics.activeOfferCount}',
         icon: Icons.local_offer_outlined,
       ),
       _StatisticData(
@@ -157,10 +447,19 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
       ),
       _StatisticData(
         key: const ValueKey('merchant-stat-revenue'),
-        label: 'Chiffre d’affaires',
+        label: offerCount == null
+            ? 'Chiffre d’affaires'
+            : 'Recettes comptabilisées',
         value: '${statistics.revenue.toStringAsFixed(3)} DT',
         icon: Icons.payments_outlined,
       ),
+      if (statistics.itemsSold case final itemsSold?)
+        _StatisticData(
+          key: const ValueKey('merchant-stat-items-sold'),
+          label: 'Articles remis',
+          value: '$itemsSold',
+          icon: Icons.shopping_bag_outlined,
+        ),
     ];
 
     return Column(
@@ -217,9 +516,10 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
           children: [
             OutlinedButton.icon(
               key: const ValueKey('merchant-open-offers'),
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => MerchantOffersScreen(repository: _repository),
+              onPressed: () => _openActivity(
+                (onChanged) => MerchantOffersScreen(
+                  repository: _api,
+                  onChanged: onChanged,
                 ),
               ),
               icon: const Icon(Icons.inventory_2_outlined),
@@ -227,11 +527,7 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
             ),
             FilledButton.icon(
               key: const ValueKey('merchant-create-offer'),
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => CreateOfferScreen(repository: _repository),
-                ),
-              ),
+              onPressed: _createOffer,
               style: FilledButton.styleFrom(
                 backgroundColor: AppTheme.burgundy,
                 foregroundColor: Colors.white,
@@ -241,9 +537,23 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
             ),
             OutlinedButton.icon(
               key: const ValueKey('merchant-view-orders'),
-              onPressed: _scrollToOrders,
+              onPressed: () => _openActivity(
+                (onChanged) => MerchantReservationsScreen(
+                  repository: _api,
+                  onChanged: onChanged,
+                ),
+              ),
               icon: const Icon(Icons.receipt_long_outlined),
-              label: const Text('Voir les réservations'),
+              label: const Text('Réservations reçues'),
+            ),
+            OutlinedButton.icon(
+              key: const ValueKey('merchant-verify-pickup'),
+              onPressed: () => _openActivity(
+                (onChanged) =>
+                    VerifyPickupScreen(repository: _api, onChanged: onChanged),
+              ),
+              icon: const Icon(Icons.qr_code_rounded),
+              label: const Text('Vérifier un retrait'),
             ),
           ],
         ),
@@ -251,15 +561,21 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
     );
   }
 
-  Widget _buildOrdersSection(BuildContext context) {
+  List<MerchantOrder> _demoRecentOrders() {
     final orders = _repository.orders.toList()
-      ..sort((first, second) {
-        return second.pickupDateTime.compareTo(first.pickupDateTime);
-      });
-    final latestOrders = orders.take(5).toList();
+      ..sort(
+        (first, second) => (second.pickupDateTime?.millisecondsSinceEpoch ?? 0)
+            .compareTo(first.pickupDateTime?.millisecondsSinceEpoch ?? 0),
+      );
+    return orders.take(5).toList();
+  }
 
+  Widget _buildOrdersSection(
+    BuildContext context,
+    List<MerchantOrder> latestOrders,
+    int total,
+  ) {
     return Column(
-      key: _ordersSectionKey,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
@@ -274,7 +590,7 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
               ),
             ),
             Text(
-              '${latestOrders.length} / ${orders.length}',
+              '${latestOrders.length} / $total',
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
                 color: AppTheme.ink.withValues(alpha: 0.62),
                 fontWeight: FontWeight.w700,
@@ -289,21 +605,10 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
           ...latestOrders.map(
             (order) => Padding(
               padding: const EdgeInsets.only(bottom: 11),
-              child: _OrderCard(order: order),
+              child: MerchantOrderCard(order: order),
             ),
           ),
       ],
-    );
-  }
-
-  void _scrollToOrders() {
-    final sectionContext = _ordersSectionKey.currentContext;
-    if (sectionContext == null) return;
-
-    Scrollable.ensureVisible(
-      sectionContext,
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeInOut,
     );
   }
 }
@@ -370,158 +675,6 @@ class _StatisticCard extends StatelessWidget {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _OrderCard extends StatelessWidget {
-  const _OrderCard({required this.order});
-
-  final MerchantOrder order;
-
-  @override
-  Widget build(BuildContext context) {
-    final localizations = MaterialLocalizations.of(context);
-    final pickupTime = TimeOfDay.fromDateTime(order.pickupDateTime);
-    final formattedPickup =
-        '${localizations.formatMediumDate(order.pickupDateTime)} · '
-        '${localizations.formatTimeOfDay(pickupTime)}';
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(15),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        order.customerName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(
-                              color: AppTheme.ink,
-                              fontWeight: FontWeight.w800,
-                            ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        order.offerTitle,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: AppTheme.ink.withValues(alpha: 0.68),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 10),
-                _OrderStatusBadge(status: order.status),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 18,
-              runSpacing: 8,
-              children: [
-                _OrderMeta(
-                  icon: Icons.shopping_bag_outlined,
-                  label:
-                      '${order.quantity} portion${order.quantity == 1 ? '' : 's'}',
-                ),
-                _OrderMeta(
-                  icon: Icons.payments_outlined,
-                  label: '${order.totalPrice.toStringAsFixed(3)} DT',
-                ),
-                _OrderMeta(
-                  icon: Icons.schedule_rounded,
-                  label: formattedPickup,
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _OrderMeta extends StatelessWidget {
-  const _OrderMeta({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 16, color: AppTheme.gold),
-        const SizedBox(width: 5),
-        Text(
-          label,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: AppTheme.ink.withValues(alpha: 0.75),
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _OrderStatusBadge extends StatelessWidget {
-  const _OrderStatusBadge({required this.status});
-
-  final MerchantOrderStatus status;
-
-  @override
-  Widget build(BuildContext context) {
-    final (label, color, background) = switch (status) {
-      MerchantOrderStatus.pending => (
-        'En attente',
-        const Color(0xFF9A5A00),
-        const Color(0xFFFFF0C7),
-      ),
-      MerchantOrderStatus.confirmed => (
-        'Confirmée',
-        const Color(0xFF145DA0),
-        const Color(0xFFE2F0FF),
-      ),
-      MerchantOrderStatus.completed => (
-        'Terminée',
-        const Color(0xFF14752A),
-        const Color(0xFFE5F5D8),
-      ),
-      MerchantOrderStatus.cancelled => (
-        'Annulée',
-        const Color(0xFFC50000),
-        const Color(0xFFFFDEDE),
-      ),
-    };
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
         ),
       ),
     );

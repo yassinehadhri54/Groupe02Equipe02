@@ -58,6 +58,8 @@ void main() {
           MerchantOrderStatus.confirmed,
           MerchantOrderStatus.completed,
           MerchantOrderStatus.cancelled,
+          MerchantOrderStatus.rejected,
+          MerchantOrderStatus.unknown,
         ]),
       );
     });
