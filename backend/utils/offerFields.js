@@ -9,6 +9,7 @@ const { parsePickupTime } = require("./validation");
 
 // Statuses that make an offer visible in the public listing.
 const LISTED_OFFER_STATUSES = ["available", "active"];
+const isOfferAdminDisabled = (offer) => offer.adminDisabled === true;
 
 const getOfferOwnerId = (offer) =>
     offer.ownerId ?? offer.merchantId ?? null;
@@ -33,6 +34,7 @@ const isOfferSoldOut = (offer) => {
 // Visible in the public listing and open for reservations.
 const isOfferBookable = (offer, now = Date.now()) =>
     LISTED_OFFER_STATUSES.includes(offer.status) &&
+    !isOfferAdminDisabled(offer) &&
     !isOfferExpired(offer, now) &&
     !isOfferSoldOut(offer);
 
@@ -43,12 +45,14 @@ const normalizeOffer = (id, data) => ({
     discountPrice: getOfferDiscountPrice(data),
     imageURL: data.imageURL ?? data.imageUrl ?? "",
     ownerId: getOfferOwnerId(data),
+    adminDisabled: isOfferAdminDisabled(data),
     isExpired: isOfferExpired(data),
     isSoldOut: isOfferSoldOut(data)
 });
 
 module.exports = {
     LISTED_OFFER_STATUSES,
+    isOfferAdminDisabled,
     getOfferOwnerId,
     getOfferDiscountPrice,
     isOfferExpired,

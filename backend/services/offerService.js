@@ -4,10 +4,12 @@ const { FieldValue } = require("firebase-admin/firestore");
 const {
     LISTED_OFFER_STATUSES,
     getOfferOwnerId,
+    isOfferAdminDisabled,
     isOfferBookable,
     normalizeOffer
 } = require("../utils/offerFields");
 const {
+    isDocumentId,
     isHttpUrl,
     isNonEmptyText,
     validatePickupWindow
@@ -182,6 +184,85 @@ const getOfferById = async (offerId) => {
     return normalizeOffer(offerDoc.id, offerDoc.data());
 };
 
+// Include hidden, expired, sold-out and legacy offers in the admin view.
+const getAdminOffers = async (filters) => {
+    const snapshot = await offersCollection.get();
+    let offers = snapshot.docs.map((doc) => normalizeOffer(doc.id, doc.data()));
+
+    if (filters.category) {
+        offers = offers.filter((offer) => normalizeText(offer.category) === normalizeText(filters.category));
+    }
+    if (filters.status) {
+        offers = offers.filter((offer) => offer.status === filters.status);
+    }
+    if (filters.adminDisabled !== undefined) {
+        offers = offers.filter((offer) => offer.adminDisabled === filters.adminDisabled);
+    }
+
+    const ids = [...new Set(offers.map((offer) => offer.shopId).filter(isDocumentId))];
+    const shops = new Map();
+    for (let index = 0; index < ids.length; index += 100) {
+        const snapshots = await db.getAll(...ids.slice(index, index + 100).map((id) => shopsCollection.doc(id)));
+        for (const shop of snapshots) {
+            if (shop.exists) shops.set(shop.id, shop.data());
+        }
+    }
+
+    const words = normalizeText(filters.q).split(/\s+/).filter(Boolean);
+    return offers.map((offer) => ({
+        ...offer,
+        shopName: shops.get(offer.shopId)?.name || offer.shopName || ""
+    })).filter((offer) => {
+        const text = normalizeText([offer.name, offer.description, offer.category, offer.shopName].join(" "));
+        return words.every((word) => text.includes(word));
+    }).sort((first, second) => first.id.localeCompare(second.id));
+};
+
+const getAdminOffer = async (offerId) => {
+    const offer = await getOfferById(offerId);
+    if (!offer) return null;
+
+    const snapshot = isDocumentId(offer.shopId)
+        ? await shopsCollection.doc(offer.shopId).get()
+        : null;
+    const shop = snapshot?.exists ? snapshot.data() : null;
+    return {
+        offer: { ...offer, shopName: shop?.name || offer.shopName || "" },
+        shop: shop ? {
+            id: snapshot.id,
+            name: shop.name,
+            address: shop.address,
+            phone: shop.phone,
+            email: shop.email,
+            status: shop.status,
+            description: shop.description
+        } : null
+    };
+};
+
+const setAdminOfferModeration = async (offerId, administratorId, { adminDisabled, reason }) => {
+    const offerRef = offersCollection.doc(offerId);
+    const historyRef = offerRef.collection("moderationHistory").doc();
+
+    return db.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(offerRef);
+        if (!snapshot.exists) return null;
+
+        // Identical retries do not create duplicate history entries.
+        if (isOfferAdminDisabled(snapshot.data()) !== adminDisabled) {
+            transaction.update(offerRef, { adminDisabled });
+            transaction.set(historyRef, {
+                adminDisabled,
+                administratorId,
+                createdAt: FieldValue.serverTimestamp(),
+                ...(reason === undefined ? {} : { reason })
+            });
+        }
+
+        return { id: offerId, adminDisabled };
+    });
+};
+
 // Récupérer les offres du commerçant connecté
 // The owner is stored as "ownerId" or "merchantId" depending on who
 // created the offer.
@@ -329,28 +410,28 @@ const updateOffer = async (uid, offerId, updateData) => {
 // Supprimer une offre
 const deleteOffer = async (uid, offerId) => {
     const offerRef = offersCollection.doc(offerId);
-    const offerDoc = await offerRef.get();
+    return db.runTransaction(async (transaction) => {
+        const offerDoc = await transaction.get(offerRef);
 
-    if (!offerDoc.exists) {
-        throw new Error("Offer not found.");
-    }
+        if (!offerDoc.exists) throw new Error("Offer not found.");
 
-    if (getOfferOwnerId(offerDoc.data()) !== uid) {
-        throw new Error("You are not allowed to delete this offer.");
-    }
+        const offer = offerDoc.data();
+        if (getOfferOwnerId(offer) !== uid || isOfferAdminDisabled(offer)) {
+            throw new Error("You are not allowed to delete this offer.");
+        }
 
-    await offerRef.delete();
-
-    return {
-        offerId,
-        deleted: true
-    };
+        transaction.delete(offerRef);
+        return { offerId, deleted: true };
+    });
 };
 
 module.exports = {
     createOffer,
     getAllOffers,
     getOfferById,
+    getAdminOffers,
+    getAdminOffer,
+    setAdminOfferModeration,
     getMyOffers,
     updateOffer,
     deleteOffer

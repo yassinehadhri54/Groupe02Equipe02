@@ -5,6 +5,7 @@ const crypto = require("crypto");
 const QRCode = require("qrcode");
 const {
     getOfferDiscountPrice,
+    isOfferAdminDisabled,
     isOfferExpired,
     LISTED_OFFER_STATUSES
 } = require("../utils/offerFields");
@@ -38,7 +39,7 @@ const createReservation = async (studentId, offerId, quantity) => {
 
         const offer = offerSnapshot.data();
 
-        if (!LISTED_OFFER_STATUSES.includes(offer.status)) {
+        if (isOfferAdminDisabled(offer) || !LISTED_OFFER_STATUSES.includes(offer.status)) {
             throw new Error("This offer is not available.");
         }
 

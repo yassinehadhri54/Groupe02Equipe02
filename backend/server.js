@@ -10,6 +10,7 @@ const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
 const shopRoutes = require("./routes/shopRoutes");
 const offerRoutes = require("./routes/offerRoutes");
+const adminOfferRoutes = require("./routes/adminOfferRoutes");
 const reservationRoutes = require("./routes/reservationRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
@@ -23,6 +24,7 @@ const app = express();
 // ================================
 
 app.use(cors());
+app.use("/api/admin/offers", adminOfferRoutes);
 app.use(express.json());
 
 // ================================

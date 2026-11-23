@@ -17,6 +17,12 @@ const isNonEmptyText = (value, maxLength = 100) =>
     value.trim().length > 0 &&
     value.trim().length <= maxLength;
 
+const isDocumentId = (value) =>
+    typeof value === "string" && value.length > 0 &&
+    Buffer.byteLength(value, "utf8") <= 1500 &&
+    !/[\/\u0000-\u001f\u007f]/.test(value) &&
+    value !== "." && value !== ".." && !/^__.*__$/.test(value);
+
 // Pickup hours are stored either as "HH:MM" or as "YYYY-MM-DDTHH:MM"
 // (HTML datetime-local), depending on the client.
 const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -67,6 +73,7 @@ const validatePickupWindow = (pickupStart, pickupEnd, now = Date.now()) => {
 module.exports = {
     isHttpUrl,
     isNonEmptyText,
+    isDocumentId,
     parsePickupTime,
     validatePickupWindow
 };
