@@ -160,8 +160,8 @@ class _AdminOffersScreenState extends State<AdminOffersScreen> {
 
 String _lifecycleLabel(ShopOffer offer) {
   if (offer.status == 'deleted') return 'Supprimée';
-  if (offer.isExpired == true) return 'Expirée';
-  if (offer.isSoldOut == true || offer.availableQuantity == 0) return 'Épuisée';
+  if (offer.pickupExpired) return 'Expirée';
+  if (offer.stockDepleted) return 'Épuisée';
   return switch (offer.status) {
     'available' || 'active' => 'Active',
     final status? => status,

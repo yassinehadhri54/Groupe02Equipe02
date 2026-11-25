@@ -218,9 +218,18 @@ const future = (h) => new Date(Date.now() + h * 3600000).toISOString().slice(0, 
     assert.strictEqual(rs.offerType, "standard");
     ok("a standard offer's reservation is marked standard");
 
+    // An old pickup references a priced offer but has no historical price snapshot.
+    coll("reservations")["legacy-completed"] = {
+        ...coll("reservations")[r.reservationId],
+        originalUnitPrice: undefined,
+        ecoPointsEarned: undefined
+    };
+
     // ---------- 6. dashboards ----------
     const student = await dashboards.getStudentDashboard("stu");
-    assert.strictEqual(student.impact.surpriseBasketsRescued, 2);
+    assert.strictEqual(student.impact.surpriseBasketsRescued, 4);
+    assert.strictEqual(student.impact.missingSavings, 1);
+    assert.strictEqual(student.impact.savingsUnavailableFor, 1);
     assert.strictEqual(student.impact.moneySaved, 20);
     assert.strictEqual(student.impact.savings, 20);
     assert.strictEqual(student.ecoPoints.total, 20);
@@ -229,12 +238,16 @@ const future = (h) => new Date(Date.now() + h * 3600000).toISOString().slice(0, 
     assert.strictEqual(student.ecoPoints.history[0].reservationId, r.reservationId);
     assert.strictEqual((await dashboards.getStudentDashboard("legacy")).ecoPoints.total, 0);
     const merchant = await dashboards.getMerchantDashboard("mer");
-    assert.strictEqual(merchant.surpriseBasketsSold, 2);
+    assert.strictEqual(merchant.surpriseBasketsSold, 4);
+    assert.strictEqual(merchant.impact.savings, 20);
+    assert.strictEqual(merchant.impact.missingSavings, 1);
     assert.deepStrictEqual(merchant.offers.byType, { standard: 1, surprise_basket: 2 });
     const admin = await dashboards.getAdminDashboard();
-    assert.strictEqual(admin.impact.surpriseBasketsRescued, 2);
+    assert.strictEqual(admin.impact.moneySaved, 20);
+    assert.strictEqual(admin.impact.missingSavings, 1);
+    assert.strictEqual(admin.impact.surpriseBasketsRescued, 4);
     assert.deepStrictEqual(admin.offers.byType, { standard: 2, surprise_basket: 2 });
-    ok("dashboards count baskets: student rescued 2, merchant sold 2, admin impact 2, offers by type");
+    ok("dashboards agree on snapshot savings, missing historical prices, and baskets by type");
 
     // ---------- 7. controllers and routes ----------
     let resp = res();

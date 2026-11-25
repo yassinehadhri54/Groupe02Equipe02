@@ -80,11 +80,27 @@ class ShopOffer {
   final String? foodInfo;
   final String? allergenInfo;
 
+  bool get pickupExpired {
+    if (isExpired == true || status == 'expired') return true;
+    final end = pickupEnd;
+    // Time-only windows represent a recurring pickup slot on the server.
+    if (end == null ||
+        !RegExp(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}').hasMatch(end)) {
+      return false;
+    }
+    final deadline = DateTime.tryParse(end);
+    return deadline != null && !deadline.isAfter(DateTime.now());
+  }
+
+  bool get stockDepleted =>
+      isSoldOut == true ||
+      status == 'sold_out' ||
+      (availableQuantity != null && availableQuantity! <= 0);
+
   bool get isUnavailable =>
       adminDisabled ||
-      isExpired == true ||
-      isSoldOut == true ||
-      (availableQuantity != null && availableQuantity! <= 0) ||
+      pickupExpired ||
+      stockDepleted ||
       (status != null && !{'available', 'active'}.contains(status));
 
   FoodOffer toFoodOffer() {

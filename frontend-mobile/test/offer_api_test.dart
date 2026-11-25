@@ -55,6 +55,26 @@ ShopRepository _repository(
 }
 
 void main() {
+  test('a dated pickup expires even when the server flags are stale', () {
+    final offer = ShopOffer.fromJson({
+      'id': 'expired',
+      'name': 'Offre expirée',
+      'status': 'available',
+      'availableQuantity': 2,
+      'pickupEnd': '2000-01-01T14:00:00Z',
+      'isExpired': false,
+    });
+    expect(offer.pickupExpired, isTrue);
+    expect(offer.isUnavailable, isTrue);
+    const recurring = ShopOffer(
+      id: 'recurring',
+      name: 'Créneau récurrent',
+      status: 'available',
+      pickupEnd: '00:15',
+    );
+    expect(recurring.isUnavailable, isFalse);
+  });
+
   test('maps backend fields and optional offer values', () async {
     final repository = _repository(
       (_) async => http.Response(_offersResponse, 200),

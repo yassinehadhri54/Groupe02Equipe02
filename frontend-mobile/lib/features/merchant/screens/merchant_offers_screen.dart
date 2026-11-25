@@ -42,9 +42,9 @@ class _MerchantOffersScreenState extends State<MerchantOffersScreen> {
 
   Widget _offerCard(ShopOffer offer) {
     final status = switch (offer) {
-      ShopOffer(isExpired: true) => 'Expirée',
-      ShopOffer(isSoldOut: true) ||
-      ShopOffer(availableQuantity: 0) => 'Épuisée',
+      ShopOffer(status: 'deleted') => 'Supprimée',
+      ShopOffer(pickupExpired: true) => 'Expirée',
+      ShopOffer(stockDepleted: true) => 'Épuisée',
       ShopOffer(status: 'available' || 'active') => 'Disponible',
       _ => offer.status ?? 'Statut indisponible',
     };

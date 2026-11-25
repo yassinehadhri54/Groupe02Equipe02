@@ -29,7 +29,7 @@ const add = (period, reservation) => {
     period.recoveredOrders++;
     if (validQuantity) period.portions += quantity;
     if (reservation.shopId) period.participatingShops.add(reservation.shopId);
-    if (validQuantity && Number.isFinite(original) && Number.isFinite(paid)
+    if (validQuantity && reservation.originalUnitPrice != null && Number.isFinite(original) && Number.isFinite(paid)
         && original >= paid && paid > 0) {
         period.savings += (original - paid) * quantity;
     } else {

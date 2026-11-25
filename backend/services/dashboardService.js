@@ -78,24 +78,6 @@ const summarizeReservation = (reservation) => ({
     createdAt: toISO(reservation.createdAt)
 });
 
-const getDocsByIds = async (collectionName, ids) => {
-    const uniqueIds = [...new Set(ids.filter(Boolean))];
-
-    if (uniqueIds.length === 0) {
-        return new Map();
-    }
-
-    const refs = uniqueIds.map((id) => db.collection(collectionName).doc(id));
-    const snapshots = await measureFirestore(() => db.getAll(...refs));
-
-    return new Map(
-        snapshots
-            .filter((snapshot) => snapshot.exists)
-            .map((snapshot) => [snapshot.id, snapshot.data()])
-    );
-};
-
-// Paid payments for a list of reservations, keyed by reservationId.
 const getPaidPaymentsByReservation = async (reservationIds) => {
     const uniqueIds = [...new Set(reservationIds.filter(Boolean))];
     const paidByReservation = new Map();
@@ -146,32 +128,7 @@ const getStudentDashboard = async (studentId, authenticatedEcoPoints) => {
     const completed = reservations.filter((r) => r.status === "completed");
     const paid = reservations.filter((r) => r.paymentStatus === "paid");
 
-    // Preserve the legacy moneySaved field for older clients. New bookings
-    // have a price snapshot and do not need another read of their offer.
-    const offers = await getDocsByIds("offers", completed
-        .filter((r) => r.originalUnitPrice == null)
-        .map((r) => r.offerId));
-
-    let moneySaved = 0;
-    let savingsUnavailableFor = 0;
-
-    for (const reservation of completed) {
-        const offer = offers.get(reservation.offerId);
-        const originalPrice = Number(reservation.originalUnitPrice ?? offer?.originalPrice);
-        const unitPrice = Number(reservation.unitPrice);
-        const quantity = Number(reservation.quantity);
-
-        if (
-            !Number.isFinite(originalPrice) ||
-            !Number.isFinite(unitPrice) ||
-            !Number.isFinite(quantity)
-        ) {
-            savingsUnavailableFor += 1;
-            continue;
-        }
-
-        moneySaved += Math.max(0, originalPrice - unitPrice) * quantity;
-    }
+    const impact = buildImpact(completed);
 
     return {
         reservations: {
@@ -185,13 +142,12 @@ const getStudentDashboard = async (studentId, authenticatedEcoPoints) => {
             paidReservations: paid.length
         },
         impact: {
-            ...buildImpact(completed),
+            ...impact,
             // Counted on completed (picked up) reservations only.
             itemsRescued: completed.reduce((sum, r) => sum + toNumber(r.quantity), 0),
-            moneySaved: roundMoney(moneySaved),
+            moneySaved: impact.savings,
             surpriseBasketsRescued: countBaskets(completed),
-            // Completed reservations whose offer no longer exists.
-            savingsUnavailableFor
+            savingsUnavailableFor: impact.missingSavings
         },
         // Bonus EcoPoints: earned at each validated pickup.
         ecoPoints: {
@@ -309,21 +265,8 @@ const getAdminDashboard = async () => {
 
     const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
 
-    // Bonus "Impact Dashboard": food rescued and money saved on the platform,
-    // counted on picked-up (completed) reservations.
-    const offersById = new Map(offers.map((offer) => [offer.id, offer]));
     const completed = reservations.filter((r) => r.status === "completed");
-    let platformMoneySaved = 0;
-
-    for (const reservation of completed) {
-        const originalPrice = Number(offersById.get(reservation.offerId)?.originalPrice);
-        const unitPrice = Number(reservation.unitPrice);
-
-        if (Number.isFinite(originalPrice) && Number.isFinite(unitPrice)) {
-            platformMoneySaved +=
-                Math.max(0, originalPrice - unitPrice) * toNumber(reservation.quantity);
-        }
-    }
+    const impact = buildImpact(completed);
 
     return {
         users: {
@@ -363,9 +306,10 @@ const getAdminDashboard = async () => {
             paidVolume: sumPaidByMode(payments.filter((p) => p.status === "paid"))
         },
         impact: {
-            ...buildImpact(completed),
+            ...impact,
             itemsRescued: completed.reduce((sum, r) => sum + toNumber(r.quantity), 0),
-            moneySaved: roundMoney(platformMoneySaved),
+            moneySaved: impact.savings,
+            savingsUnavailableFor: impact.missingSavings,
             ecoPointsAwarded: completed.reduce((sum, r) => sum + toNumber(r.ecoPointsEarned), 0),
             surpriseBasketsRescued: countBaskets(completed),
             studentsInvolved: new Set(completed.map((r) => r.studentId)).size
