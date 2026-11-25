@@ -13,6 +13,7 @@ build/
 google-services.json
 GoogleService-Info.plist
 **/.gradle/
+**/.kotlin/
 **/local.properties
 **/key.properties
 **/ios/Flutter/Generated.xcconfig

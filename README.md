@@ -15,7 +15,7 @@ Installer Node.js et npm compatibles avec les dépendances verrouillées, Flutte
 
 1. Dans `backend`, lancer `npm ci`. Copier `.env.example` vers `.env` et renseigner les valeurs locales. Utiliser les Application Default Credentials du projet Firebase QA autorisé. Renseigner `GOOGLE_CLOUD_PROJECT` si nécessaire et `FIREBASE_WEB_API_KEY` pour la connexion. Conserver tout fichier de clé hors du dépôt. Garder `PAYMENT_MODE=mock`. Lancer `npm start` sur `http://localhost:5000`. Tester `GET /api/health` et `GET /api/firebase-test`.
 2. Dans `frontend-web`, lancer `npm ci` puis `npm run dev -- --port 5173 --strictPort`. Le site est accessible sur `http://localhost:5173`. L’API par défaut est `http://localhost:5000`. Utiliser `VITE_API_URL` dans `.env.local` si nécessaire. Les variables `VITE_*` sont publiques dans le bundle.
-3. Dans `frontend-mobile`, lancer `flutter pub get` puis `flutter run -d emulator-5554 --dart-define=API_BASE_URL=http://10.0.2.2:5000`. Sur Windows, la génération de liens pour les plugins de bureau peut nécessiter l’activation des liens symboliques.
+3. Dans `frontend-mobile`, lancer `flutter pub get` puis `flutter run -d emulator-5554 --dart-define=API_BASE_URL=http://10.0.2.2:5000`. Sur Windows, si les liens symboliques des plugins de bureau bloquent la préparation Android, exécuter `$env:FLUTTER_WINDOWS = 'false'` dans cette session PowerShell avant `flutter pub get`. Ce réglage concerne le processus courant.
 
 L’API accepte les origines cross-origin et vérifie les jetons et les permissions côté serveur. Les règles Firestore versionnées refusent l’accès direct depuis les clients. Firebase Admin accède aux données avec les identifiants du serveur.
 
