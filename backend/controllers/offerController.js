@@ -7,20 +7,22 @@ const { OFFER_TYPES, SURPRISE_BASKET } = require("../utils/offerFields");
 // forcedType is used by POST /api/offers/surprise-baskets.
 const createOffer = async (req, res, forcedType) => {
     try {
+        const body = req.body || {};
         const {
-            name,
+            name = body.title,
             description,
             category,
             originalPrice,
-            discountPrice,
+            discountPrice = body.discountedPrice,
             quantity,
             pickupStart,
             pickupEnd,
-            imageURL,
+            imageURL = body.imageUrl,
+            address,
             basketItems,
             foodInfo,
             allergenInfo
-        } = req.body || {};
+        } = body;
 
         const offerType =
             typeof forcedType === "string" ? forcedType : (req.body || {}).offerType;
@@ -79,6 +81,7 @@ const createOffer = async (req, res, forcedType) => {
                 pickupStart,
                 pickupEnd,
                 imageURL,
+                address,
                 offerType,
                 basketItems,
                 foodInfo,
@@ -91,7 +94,8 @@ const createOffer = async (req, res, forcedType) => {
             message: isBasket
                 ? "Surprise basket created successfully."
                 : "Offer created successfully.",
-            data: offer
+            data: offer,
+            offer
         });
 
     } catch (error) {
@@ -168,7 +172,8 @@ const getAllOffers = async (req, res, forcedType) => {
         return res.status(200).json({
             success: true,
             count: offers.length,
-            data: offers
+            data: offers,
+            offers
         });
 
     } catch (error) {
@@ -199,7 +204,8 @@ const getOfferById = async (req, res) => {
 
         return res.status(200).json({
             success: true,
-            data: offer
+            data: offer,
+            offer
         });
 
     } catch (error) {
@@ -220,7 +226,8 @@ const getMyOffers = async (req, res) => {
         return res.status(200).json({
             success: true,
             count: offers.length,
-            data: offers
+            data: offers,
+            offers
         });
 
     } catch (error) {
@@ -245,7 +252,8 @@ const updateOffer = async (req, res) => {
         return res.status(200).json({
             success: true,
             message: "Offer updated successfully.",
-            data: offer
+            data: offer,
+            offer
         });
 
     } catch (error) {

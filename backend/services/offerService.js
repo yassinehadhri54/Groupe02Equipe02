@@ -58,24 +58,36 @@ const shopsCollection = db.collection("shops");
 
 // Vérifier que le commerçant possède une boutique approuvée
 const getApprovedShop = async (uid) => {
-    const snapshot = await shopsCollection
-        .where("ownerId", "==", uid)
+    const find = (ownerField) => measureFirestore(() => shopsCollection
+        .where(ownerField, "==", uid)
         .where("status", "==", "approved")
         .limit(1)
-        .get();
+        .get());
+    const owned = await find("ownerId");
+    const shop = owned.docs[0] ?? (await find("merchantId")).docs[0];
 
-    if (snapshot.empty) {
+    if (!shop) {
         throw new Error("You need an approved shop to publish offers.");
     }
 
     return {
-        id: snapshot.docs[0].id,
-        ...snapshot.docs[0].data()
+        ...shop.data(),
+        id: shop.id
     };
 };
 
+const legacyFields = { name: "title", discountPrice: "discountedPrice", imageURL: "imageUrl" };
+
+const readOfferAliases = (fields) => ({
+    ...fields,
+    name: fields.name ?? fields.title,
+    discountPrice: fields.discountPrice ?? fields.discountedPrice,
+    imageURL: fields.imageURL ?? fields.imageUrl
+});
+
 // Créer une offre
 const createOffer = async (uid, rawOfferData) => {
+    rawOfferData = readOfferAliases(rawOfferData);
     const offerType = rawOfferData.offerType ?? STANDARD_OFFER;
 
     if (!OFFER_TYPES.includes(offerType)) {
@@ -118,19 +130,24 @@ const createOffer = async (uid, rawOfferData) => {
         throw new Error("description must be a text of at most 1000 characters.");
     }
 
+    if (!isOptionalText(offerData.address, 200)) {
+        throw new Error("address must be a text of at most 200 characters.");
+    }
+
     const shop = await getApprovedShop(uid);
 
     const offerRef = offersCollection.doc();
 
     const newOffer = {
         offerId: offerRef.id,
-        shopId: shop.shopId || shop.id,
+        shopId: shop.id,
         shopName: shop.name || "",
         ownerId: uid,
 
-        name: offerData.name,
+        name: offerData.name.trim(),
+        ...(offerData.address === undefined ? {} : { address: (offerData.address || "").trim() }),
         description: (offerData.description || "").trim(),
-        category: offerData.category,
+        category: offerData.category.trim(),
         originalPrice: Number(offerData.originalPrice),
         discountPrice: Number(offerData.discountPrice),
         quantity: Number(offerData.quantity),
@@ -149,6 +166,7 @@ const createOffer = async (uid, rawOfferData) => {
         updatedAt: FieldValue.serverTimestamp()
     };
 
+    for (const [field, alias] of Object.entries(legacyFields)) newOffer[alias] = newOffer[field];
     await offerRef.set(newOffer);
 
     return {
@@ -276,7 +294,12 @@ const getAdminOffers = async (filters) => {
         offers = offers.filter((offer) => normalizeText(offer.category) === normalizeText(filters.category));
     }
     if (filters.status) {
-        offers = offers.filter((offer) => offer.status === filters.status);
+        offers = offers.filter((offer) => {
+            if (offer.status === DELETED_STATUS) return filters.status === DELETED_STATUS;
+            if (offer.isExpired || offer.status === "expired") return filters.status === "expired";
+            if (offer.isSoldOut || offer.status === "sold_out") return filters.status === "sold_out";
+            return offer.status === filters.status;
+        });
     }
     if (filters.adminDisabled !== undefined) {
         offers = offers.filter((offer) => offer.adminDisabled === filters.adminDisabled);
@@ -373,7 +396,8 @@ const getMyOffers = async (uid) => {
 const updateOffer = async (uid, offerId, updateData) => {
     const offerRef = offersCollection.doc(offerId);
 
-    await db.runTransaction(async (transaction) => {
+    const fields = readOfferAliases(updateData);
+    return db.runTransaction(async (transaction) => {
         const offerDoc = await transaction.get(offerRef);
 
         if (!offerDoc.exists || offerDoc.data().status === DELETED_STATUS) {
@@ -396,15 +420,16 @@ const updateOffer = async (uid, offerId, updateData) => {
             "imageURL",
             "basketItems",
             "foodInfo",
-            "allergenInfo"
+            "allergenInfo",
+            "address"
         ];
 
         // offerType is fixed at creation: it is not in the list above.
         const cleanData = {};
 
         for (const field of allowedFields) {
-            if (updateData[field] !== undefined) {
-                cleanData[field] = updateData[field];
+            if (fields[field] !== undefined) {
+                cleanData[field] = fields[field];
             }
         }
 
@@ -423,6 +448,13 @@ const updateOffer = async (uid, offerId, updateData) => {
             }
 
             cleanData.basketItems = validateBasketItems(cleanData.basketItems);
+        }
+
+        if (cleanData.address !== undefined) {
+            if (!isOptionalText(cleanData.address, 200)) {
+                throw new Error("address must be a text of at most 200 characters.");
+            }
+            cleanData.address = (cleanData.address || "").trim();
         }
 
         if (cleanData.description !== undefined) {
@@ -474,6 +506,10 @@ const updateOffer = async (uid, offerId, updateData) => {
             const alreadyReserved =
                 current.quantity - current.availableQuantity;
 
+            if (!Number.isSafeInteger(alreadyReserved) || alreadyReserved < 0) {
+                throw new Error("Invalid offer stock data.");
+            }
+
             if (newQuantity < alreadyReserved) {
                 throw new Error(
                     "Quantity cannot be lower than the quantity already reserved."
@@ -506,8 +542,6 @@ const updateOffer = async (uid, offerId, updateData) => {
 
         // Offers created by another client use other field names: keep those
         // in sync too, so every client sees the same values.
-        const legacyFields = { name: "title", discountPrice: "discountedPrice", imageURL: "imageUrl" };
-
         for (const [field, legacyField] of Object.entries(legacyFields)) {
             if (cleanData[field] !== undefined && rawCurrent[legacyField] !== undefined) {
                 cleanData[legacyField] = cleanData[field];
@@ -517,11 +551,8 @@ const updateOffer = async (uid, offerId, updateData) => {
         cleanData.updatedAt = FieldValue.serverTimestamp();
 
         transaction.update(offerRef, cleanData);
+        return normalizeOffer(offerId, { ...rawCurrent, ...cleanData, updatedAt: null });
     });
-
-    const updatedDoc = await offerRef.get();
-
-    return normalizeOffer(updatedDoc.id, updatedDoc.data());
 };
 
 // Supprimer une offre

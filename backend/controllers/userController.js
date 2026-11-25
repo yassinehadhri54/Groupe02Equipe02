@@ -3,40 +3,16 @@ const {
     getUserById,
     updateUserProfile,
     getAllUsers,
+    getPendingMerchants,
+    approveMerchant,
+    rejectMerchant,
     setUserStatus
 } = require("../services/userService");
-
-// PUT /api/users/:id/status   { "status": "suspended" | "active" }  (Admin only)
-const updateUserStatus = async (req, res) => {
-    try {
-        const user = await setUserStatus(
-            req.user.uid,
-            req.params.id,
-            req.body?.status
-        );
-
-        return res.status(200).json({
-            success: true,
-            message: user.status === "suspended"
-                ? "User suspended."
-                : "User reactivated.",
-            user
-        });
-    } catch (error) {
-        console.error("Update user status error:", error.message);
-
-        return res.status(error.statusCode || 500).json({
-            success: false,
-            message: error.statusCode ? error.message : "Failed to update user status."
-        });
-    }
-};
 
 // GET connected user's profile
 const getMyProfile = async (req, res) => {
     try {
         const uid = req.user.uid || req.user.sub;
-
         const user = await getUserById(uid);
 
         return res.status(200).json({
@@ -58,7 +34,6 @@ const getMyProfile = async (req, res) => {
 const updateMyProfile = async (req, res) => {
     try {
         const uid = req.user.uid || req.user.sub;
-
         const user = await updateUserProfile(uid, req.body || {});
 
         return res.status(200).json({
@@ -96,7 +71,7 @@ const getUsers = async (req, res) => {
     }
 };
 
-// GET one user by ID (Admin only)
+// GET one user (Admin only)
 const getUser = async (req, res) => {
     try {
         const user = await getUserById(req.params.id);
@@ -115,10 +90,101 @@ const getUser = async (req, res) => {
     }
 };
 
+// GET pending merchants (Admin only)
+const getPendingMerchantsController = async (req, res) => {
+    try {
+        const merchants = await getPendingMerchants();
+
+        return res.status(200).json({
+            success: true,
+            count: merchants.length,
+            merchants
+        });
+    } catch (error) {
+        console.error("Get pending merchants error:", error.message);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to retrieve pending merchants."
+        });
+    }
+};
+
+// APPROVE merchant (Admin only)
+const approveMerchantController = async (req, res) => {
+    try {
+        const merchant = await approveMerchant(req.params.id);
+
+        return res.status(200).json({
+            success: true,
+            message: "Merchant approved successfully.",
+            merchant
+        });
+    } catch (error) {
+        console.error("Approve merchant error:", error.message);
+
+        return res.status(error.statusCode || 500).json({
+            success: false,
+            message: error.message || "Failed to approve merchant."
+        });
+    }
+};
+
+// REJECT merchant (Admin only)
+const rejectMerchantController = async (req, res) => {
+    try {
+        const merchant = await rejectMerchant(req.params.id);
+
+        return res.status(200).json({
+            success: true,
+            message: "Merchant rejected successfully.",
+            merchant
+        });
+    } catch (error) {
+        console.error("Reject merchant error:", error.message);
+
+        return res.status(error.statusCode || 500).json({
+            success: false,
+            message: error.message || "Failed to reject merchant."
+        });
+    }
+};
+
+// PUT /api/users/:id/status (Admin only)
+const updateUserStatus = async (req, res) => {
+    try {
+        const uid = req.user.uid || req.user.sub;
+
+        const user = await setUserStatus(
+            uid,
+            req.params.id,
+            req.body?.status
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: user.status === "suspended"
+                ? "User suspended."
+                : "User reactivated.",
+            user
+        });
+    } catch (error) {
+        console.error("Update user status error:", error.message);
+
+        return res.status(error.statusCode || 500).json({
+            success: false,
+            message: error.message || "Failed to update user status."
+        });
+    }
+};
+
 module.exports = {
     getMyProfile,
     updateMyProfile,
     getUsers,
     getUser,
+    getPendingMerchantsController,
+    approveMerchantController,
+    rejectMerchantController,
     updateUserStatus
 };

@@ -5,7 +5,13 @@ const { FieldValue } = require("firebase-admin/firestore");
 const { removeToken } = require("./notificationService");
 
 // Register
-const registerUser = async ({ fullName, email, password, role }) => {
+const registerUser = async ({
+    fullName,
+    email,
+    password,
+    role,
+    shop
+}) => {
     const userRecord = await auth.createUser({
         email,
         password,
@@ -25,17 +31,49 @@ const registerUser = async ({ fullName, email, password, role }) => {
             createdAt: FieldValue.serverTimestamp()
         };
 
-        await db.collection("users")
-            .doc(userRecord.uid)
-            .set(userProfile);
+        const batch = db.batch();
+
+        const userRef = db.collection("users").doc(userRecord.uid);
+
+        batch.set(userRef, userProfile);
+
+        let createdShopId = null;
+
+        // Create the merchant's shop automatically.
+        if (role === "merchant" && shop) {
+            const shopRef = db.collection("shops").doc(userRecord.uid);
+
+            createdShopId = shopRef.id;
+
+            const shopData = {
+                shopId: shopRef.id,
+                ownerId: userRecord.uid,
+                ownerName: fullName,
+                ownerEmail: email,
+                name: shop.name,
+                address: shop.address,
+                phone: shop.phone,
+                email,
+                description: shop.description || "",
+                status: "pending",
+                createdAt: FieldValue.serverTimestamp(),
+                updatedAt: FieldValue.serverTimestamp()
+            };
+
+            batch.create(shopRef, shopData);
+        }
+
+        await batch.commit();
 
         return {
             uid: userRecord.uid,
             fullName,
             email,
             role,
-            status: userProfile.status
+            status: userProfile.status,
+            ...(createdShopId && { shopId: createdShopId })
         };
+
     } catch (error) {
         await auth.deleteUser(userRecord.uid);
         throw error;
@@ -87,24 +125,24 @@ const getUserProfile = async (uid) => {
         return null;
     }
 
-    // Device tokens (FCM) are never returned by the API.
+    // Never expose FCM device tokens through the API.
     const { fcmTokens, ...profile } = userDoc.data();
 
     return profile;
 };
 
 // Logout
-// Firebase ID tokens are stateless, so logout really invalidates the session by
-// revoking the user's refresh tokens. verifyToken checks revocation, so ID tokens
-// issued before this moment are refused. This signs the user out on ALL devices.
-// The client must also delete its stored tokens.
+// Revokes refresh tokens for all devices belonging to this user.
 const logoutUser = async (uid, fcmToken) => {
-    // Stop push notifications on this device (optional).
+    // Remove this device's notification token when provided.
     if (fcmToken) {
         try {
             await removeToken(uid, fcmToken);
         } catch (error) {
-            console.error("Logout FCM token removal error:", error.message);
+            console.error(
+                "Logout FCM token removal error:",
+                error.message
+            );
         }
     }
 

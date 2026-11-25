@@ -60,6 +60,14 @@ function collection(path, filters = [], maximum) {
 const db = {
     collection,
     getAll: (...refs) => Promise.all(refs.map(ref => ref.get())),
+    batch() {
+        const writes = [];
+        return {
+            set: (ref, values) => writes.push(() => ref.set(values)),
+            create: (ref, values) => writes.push(() => { assert(!data.has(ref.path)); return ref.set(values); }),
+            commit: () => Promise.all(writes.map(write => write()))
+        };
+    },
     async runTransaction(run) {
         const writes = [];
         const result = await run({
@@ -73,6 +81,7 @@ const db = {
     }
 };
 const auth = {
+    async createUser() { return { uid: "registered-" + ++nextId }; },
     async verifyIdToken(token, checkRevoked) {
         assert.equal(checkRevoked, true);
         if (!data.has(`users/${token}`)) throw new Error("invalid test credential");
@@ -82,7 +91,7 @@ const auth = {
 
 // Replace all application access to Firebase and FCM before loading the real routers.
 const load = Module._load;
-let adminRoutes, offerRoutes, reservationRoutes, paymentRoutes, dashboardRoutes;
+let authRoutes, adminRoutes, offerRoutes, reservationRoutes, paymentRoutes, dashboardRoutes;
 try {
     Module._load = function (name, parent, isMain) {
         if (name === "../config/firebase") return { auth, db };
@@ -95,6 +104,7 @@ try {
         }
         return load.call(this, name, parent, isMain);
     };
+    authRoutes = require("../routes/authRoutes");
     adminRoutes = require("../routes/adminOfferRoutes");
     offerRoutes = require("../routes/offerRoutes");
     reservationRoutes = require("../routes/reservationRoutes");
@@ -118,6 +128,7 @@ test.before(async () => {
     const app = express();
     app.use("/api/admin/offers", adminRoutes);
     app.use(express.json());
+    app.use("/api/auth", authRoutes);
     app.use("/api/offers", offerRoutes);
     app.use("/api/reservations", reservationRoutes);
     app.use("/api/payments", paymentRoutes);
@@ -178,12 +189,39 @@ test("admin routes require a valid token, admin role and active status", async (
     assert.equal(history().length, 0);
 });
 
+test("merchant registration accepts the two-step flow and validates an optional legacy shop", async () => {
+    const body = { fullName: "Test Merchant", email: "merchant@example.test", password: "simulated-password", role: "merchant" };
+    const ordinary = await request("/api/auth/register", { method: "POST", token: null, body });
+    assert.equal(ordinary.status, 201);
+    assert.equal(ordinary.body.user.status, "pending");
+    assert.equal(data.has("shops/" + ordinary.body.user.uid), false);
+    const invalid = await request("/api/auth/register", { method: "POST", token: null, body: { ...body, shopName: "Only the name" } });
+    assert.equal(invalid.status, 400);
+    const compatible = await request("/api/auth/register", { method: "POST", token: null, body: { ...body, shopName: "Test Shop", shopAddress: "Tunis", shopPhone: "12345678" } });
+    assert.equal(compatible.status, 201);
+    const uid = compatible.body.user.uid;
+    assert.equal(compatible.body.user.shopId, uid);
+    assert.equal(data.get("shops/" + uid).status, "pending");
+});
+
+test("legacy listings use canonical permissions and admin cannot delete offers", async () => {
+    const compatible = await request("/api/offers/admin/all");
+    assert.equal(compatible.status, 200);
+    assert.deepEqual(compatible.body.offers, compatible.body.data);
+    assert.equal((await request("/api/offers/admin/all", { token: "merchant" })).status, 403);
+    assert.equal((await request("/api/offers/admin/all", { token: "pending" })).status, 403);
+    assert.equal((await request("/api/offers/my", { token: "merchant" })).status, 200);
+    assert.equal((await request("/api/offers/legacy", { method: "DELETE" })).status, 403);
+});
+
 test("admin lists legacy and expired offers, filters by text and returns shop details", async () => {
     const all = await request("/api/admin/offers");
     assert.equal(all.status, 200);
     assert.deepEqual(all.body.data.map(offer => [offer.id, offer.adminDisabled]), [["expired", true], ["legacy", false]]);
     const filters = await request("/api/admin/offers?q=pates+epicerie&category=repas&status=active&adminDisabled=false");
     assert.deepEqual(filters.body.data.map(offer => offer.id), ["legacy"]);
+    const expired = await request("/api/admin/offers?status=expired");
+    assert.deepEqual(expired.body.data.map(offer => offer.id), ["expired"]);
     const disabled = await request("/api/admin/offers?adminDisabled=true");
     assert.deepEqual(disabled.body.data.map(offer => offer.id), ["expired"]);
     const detail = await request("/api/admin/offers/legacy");

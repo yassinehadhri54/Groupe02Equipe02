@@ -1,3 +1,4 @@
+const { validateShopFields } = require("../utils/validation");
 
 const {
     registerUser,
@@ -9,7 +10,16 @@ const {
 // Register
 const register = async (req, res) => {
     try {
-        const { fullName, email, password, role } = req.body || {};
+        const {
+            fullName,
+            email,
+            password,
+            role,
+            shopName,
+            shopAddress,
+            shopPhone,
+            shopDescription
+        } = req.body || {};
 
         if (!fullName || !email || !password || !role) {
             return res.status(400).json({
@@ -27,7 +37,7 @@ const register = async (req, res) => {
             });
         }
 
-        if (password.length < 8) {
+        if (typeof password !== "string" || password.length < 8) {
             return res.status(400).json({
                 success: false,
                 message: "Password must contain at least 8 characters."
@@ -41,11 +51,21 @@ const register = async (req, res) => {
             });
         }
 
+        let shop;
+        if (role === "merchant" && [shopName, shopAddress, shopPhone, shopDescription].some(value => value !== undefined)) {
+            try {
+                shop = validateShopFields({ name: shopName, address: shopAddress, phone: shopPhone, description: shopDescription });
+            } catch (error) {
+                return res.status(400).json({ success: false, message: error.message });
+            }
+        }
+
         const user = await registerUser({
             fullName,
             email,
             password,
-            role
+            role,
+            shop
         });
 
         return res.status(201).json({
@@ -125,8 +145,11 @@ const login = async (req, res) => {
         }
 
         if (
-            ["EMAIL_NOT_FOUND", "INVALID_PASSWORD",
-             "INVALID_LOGIN_CREDENTIALS"].includes(firebaseError)
+            [
+                "EMAIL_NOT_FOUND",
+                "INVALID_PASSWORD",
+                "INVALID_LOGIN_CREDENTIALS"
+            ].includes(firebaseError)
         ) {
             return res.status(401).json({
                 success: false,
@@ -175,10 +198,13 @@ const getMe = async (req, res) => {
     }
 };
 
-// Logout - POST /api/auth/logout   body (optional): { "fcmToken": "..." }
+// Logout
 const logout = async (req, res) => {
     try {
-        const result = await logoutUser(req.user.uid, req.body?.fcmToken);
+        const result = await logoutUser(
+            req.user.uid,
+            req.body?.fcmToken
+        );
 
         return res.status(200).json({
             success: true,

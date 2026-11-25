@@ -231,7 +231,7 @@ const SHOP_TRANSITIONS = {
     rejected: { from: ["pending", "approved"], userStatus: "rejected" }
 };
 
-const changeShopStatus = async (shopId, newStatus) => {
+const changeShopStatus = async (shopId, newStatus, pendingMerchantId) => {
     const transition = SHOP_TRANSITIONS[newStatus];
     const shopRef = shopsCollection.doc(shopId);
 
@@ -252,11 +252,16 @@ const changeShopStatus = async (shopId, newStatus) => {
             throw new Error(`A ${shopData.status} shop cannot be ${newStatus}.`);
         }
 
-        const ownerRef = usersCollection.doc(shopData.ownerId);
+        const ownerId = shopData.ownerId ?? shopData.merchantId;
+        const ownerRef = usersCollection.doc(ownerId);
         const ownerDoc = await transaction.get(ownerRef);
 
         if (!ownerDoc.exists) {
             throw new Error("Shop owner not found.");
+        }
+
+        if (pendingMerchantId && (ownerId !== pendingMerchantId || ownerDoc.get("role") !== "merchant" || ownerDoc.get("status") !== "pending" || shopData.status !== "pending")) {
+            throw new Error("Only a pending merchant and its pending shop can be reviewed this way.");
         }
 
         transaction.update(shopRef, {
@@ -278,10 +283,10 @@ const changeShopStatus = async (shopId, newStatus) => {
 };
 
 // Approve a shop (Admin)
-const approveShop = (shopId) => changeShopStatus(shopId, "approved");
+const approveShop = (shopId, pendingMerchantId) => changeShopStatus(shopId, "approved", pendingMerchantId);
 
 // Reject a shop (Admin)
-const rejectShop = (shopId) => changeShopStatus(shopId, "rejected");
+const rejectShop = (shopId, pendingMerchantId) => changeShopStatus(shopId, "rejected", pendingMerchantId);
 
 module.exports = {
     createShop,

@@ -29,7 +29,7 @@ const getAdminOffers = async (req, res) => {
 
     try {
         const data = await offerService.getAdminOffers(filters);
-        return res.json({ success: true, count: data.length, data });
+        return res.json({ success: true, count: data.length, data, ...(req.path === "/admin/all" ? { offers: data } : {}) });
     } catch (error) {
         console.error("Admin offer listing failed:", error.code || error.name);
         return res.status(500).json({ success: false, message: "Could not retrieve offers." });

@@ -4,12 +4,13 @@ const { verifyRole } = require("../middlewares/roleMiddleware");
 const { getAdminOffers, getAdminOffer, updateModeration } = require("../controllers/adminOfferController");
 
 const router = express.Router();
-router.use(verifyToken, verifyRole("admin"), (req, res, next) => {
+const verifyAdminOfferAccess = [verifyToken, verifyRole("admin"), (req, res, next) => {
     if (req.user.status !== "active") {
         return res.status(403).json({ success: false, message: "An active administrator account is required." });
     }
     next();
-});
+}];
+router.use(...verifyAdminOfferAccess);
 
 router.get("/", getAdminOffers);
 router.get("/:id", getAdminOffer);
@@ -26,3 +27,4 @@ router.use((error, req, res, next) => {
 });
 
 module.exports = router;
+module.exports.verifyAdminOfferAccess = verifyAdminOfferAccess;
