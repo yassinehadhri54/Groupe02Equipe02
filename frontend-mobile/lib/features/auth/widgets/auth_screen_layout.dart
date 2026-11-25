@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/theme_toggle_button.dart';
 
 class AuthScreenLayout extends StatelessWidget {
   const AuthScreenLayout({required this.child, super.key});
@@ -12,7 +13,7 @@ class AuthScreenLayout extends StatelessWidget {
     final width = MediaQuery.sizeOf(context).width;
 
     return Scaffold(
-      backgroundColor: AppTheme.cream,
+      backgroundColor: context.colors.surface,
       resizeToAvoidBottomInset: true,
       body: SafeArea(
         child: LayoutBuilder(
@@ -26,8 +27,13 @@ class AuthScreenLayout extends StatelessWidget {
 
             return Stack(
               children: [
-                const Positioned.fill(
-                  child: ColoredBox(color: Color(0xFFFFF8F1)),
+                Positioned.fill(
+                  child: ColoredBox(
+                    color: context.adaptiveColor(
+                      const Color(0xFFFFF8F1),
+                      context.colors.surface,
+                    ),
+                  ),
                 ),
                 Positioned(
                   top: 0,
@@ -78,6 +84,15 @@ class AuthScreenLayout extends StatelessWidget {
                     SizedBox(height: bottomWaveHeight + 8),
                   ],
                 ),
+                const Positioned(
+                  top: 4,
+                  right: 12,
+                  child: Material(
+                    shape: CircleBorder(),
+                    color: AppTheme.burgundy,
+                    child: ThemeToggleButton(color: Colors.white),
+                  ),
+                ),
               ],
             );
           },
@@ -113,11 +128,11 @@ class AuthHeader extends StatelessWidget {
                 fit: BoxFit.scaleDown,
                 alignment: Alignment.centerLeft,
                 child: Text.rich(
-                  const TextSpan(
+                  TextSpan(
                     children: [
                       TextSpan(
                         text: 'Campus',
-                        style: TextStyle(color: AppTheme.burgundy),
+                        style: TextStyle(color: context.colors.primary),
                       ),
                       TextSpan(
                         text: 'Save',
@@ -134,13 +149,13 @@ class AuthHeader extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 10),
-              const Text(
+              Text(
                 'Des repas de qualité, à petit prix\nsur ton campus',
-                key: ValueKey('auth-slogan'),
+                key: const ValueKey('auth-slogan'),
                 style: TextStyle(
                   fontSize: 13,
                   height: 1.5,
-                  color: AppTheme.ink,
+                  color: context.colors.onSurface,
                 ),
               ),
             ],

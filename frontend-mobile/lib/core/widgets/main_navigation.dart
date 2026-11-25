@@ -91,7 +91,7 @@ class _MainNavigationState extends State<MainNavigation> {
                     borderRadius: BorderRadius.circular(40),
                     boxShadow: [
                       BoxShadow(
-                        color: AppTheme.ink.withValues(alpha: 0.22),
+                        color: Colors.black.withValues(alpha: 0.22),
                         blurRadius: 22,
                         offset: const Offset(0, 8),
                       ),

@@ -32,7 +32,7 @@ class AccountStatusScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppTheme.cream,
+      backgroundColor: context.colors.surface,
       body: SafeArea(
         child: Center(
           child: Padding(
@@ -48,14 +48,14 @@ class AccountStatusScreen extends StatelessWidget {
                           ? Icons.hourglass_top_rounded
                           : Icons.block_flipped,
                       size: 52,
-                      color: AppTheme.burgundy,
+                      color: context.colors.primary,
                     ),
                     const SizedBox(height: 18),
                     Text(
                       title,
                       textAlign: TextAlign.center,
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: AppTheme.ink,
+                        color: context.colors.onSurface,
                         fontWeight: FontWeight.w800,
                       ),
                     ),

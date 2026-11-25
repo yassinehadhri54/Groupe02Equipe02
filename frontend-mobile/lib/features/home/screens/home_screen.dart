@@ -2,6 +2,9 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../core/network/auth_repository.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/theme_toggle_button.dart';
+import '../../impact/screens/impact_dashboard_screen.dart';
+import '../../radar/screens/campus_radar_screen.dart';
 import '../../search/data/shop_repository.dart';
 import '../../search/models/shop_offer.dart';
 import '../../offers/screens/offer_detail_screen.dart';
@@ -16,10 +19,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  static const Color burgundy = Color(0xFF8F0401);
   static const Color gold = Color(0xFFDCA321);
-  static const Color cream = Color(0xFFFFF6EE);
-  static const Color ink = Color(0xFF292323);
 
   final TextEditingController _searchController = TextEditingController();
   final PageController _bannerController = PageController();
@@ -120,7 +120,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       key: const ValueKey('home-screen'),
-      backgroundColor: cream,
+      backgroundColor: context.adaptiveColor(
+        const Color(0xFFFFF6EE),
+        context.colors.surface,
+      ),
       body: CustomScrollView(
         key: const ValueKey('home-scroll'),
         slivers: [
@@ -137,6 +140,22 @@ class _HomeScreenState extends State<HomeScreen> {
                       _animate(_buildPromoCarousel(), 0),
                       const SizedBox(height: 24),
                       _animate(_buildCategoryShortcuts(), 100),
+                      const SizedBox(height: 16),
+                      Card(
+                        child: ListTile(
+                          leading: const Icon(Icons.map_outlined),
+                          title: const Text('Campus Radar'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => Navigator.of(context).push<void>(
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  CampusRadarScreen(repository: _repository),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      StudentImpactTile(repository: _repository.authRepository),
                       const SizedBox(height: 30),
                       _animate(_buildCategoryFilters(), 180),
                       const SizedBox(height: 30),
@@ -253,6 +272,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ],
                         ),
+                        const ThemeToggleButton(color: Colors.white),
                       ],
                     ),
                     const SizedBox(height: 16),
@@ -262,7 +282,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Container(
                             height: 56,
                             decoration: BoxDecoration(
-                              color: Colors.white,
+                              color: context.colors.surfaceContainerHigh,
                               borderRadius: BorderRadius.circular(30),
                               boxShadow: [
                                 BoxShadow(
@@ -280,23 +300,26 @@ class _HomeScreenState extends State<HomeScreen> {
                                 onChanged: (value) {
                                   setState(() => _searchQuery = value);
                                 },
-                                cursorColor: burgundy,
-                                style: const TextStyle(
+                                cursorColor: context.colors.primary,
+                                style: TextStyle(
                                   fontSize: 14,
-                                  color: ink,
+                                  color: context.colors.onSurface,
                                 ),
                                 decoration: InputDecoration(
                                   filled: false,
                                   fillColor: Colors.transparent,
                                   hintText:
                                       'Rechercher un repas, un commerce...',
-                                  hintStyle: const TextStyle(
+                                  hintStyle: TextStyle(
                                     fontSize: 12,
-                                    color: Color(0xFF77716E),
+                                    color: context.adaptiveColor(
+                                      const Color(0xFF77716E),
+                                      context.colors.onSurfaceVariant,
+                                    ),
                                   ),
-                                  prefixIcon: const Icon(
+                                  prefixIcon: Icon(
                                     Icons.search_rounded,
-                                    color: burgundy,
+                                    color: context.colors.primary,
                                     size: 25,
                                   ),
                                   suffixIcon: _searchQuery.isEmpty
@@ -320,7 +343,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         const SizedBox(width: 10),
                         Material(
-                          color: Colors.white,
+                          color: context.colors.surfaceContainerHigh,
                           borderRadius: BorderRadius.circular(23),
                           elevation: 2,
                           shadowColor: Colors.black.withValues(alpha: 0.12),
@@ -328,12 +351,12 @@ class _HomeScreenState extends State<HomeScreen> {
                             key: const ValueKey('header-filter-button'),
                             borderRadius: BorderRadius.circular(23),
                             onTap: _showFilterSheet,
-                            child: const SizedBox(
+                            child: SizedBox(
                               height: 56,
                               width: 56,
                               child: Icon(
                                 Icons.tune_rounded,
-                                color: burgundy,
+                                color: context.colors.primary,
                                 size: 27,
                               ),
                             ),
@@ -408,8 +431,11 @@ class _HomeScreenState extends State<HomeScreen> {
               width: _bannerIndex == index ? 24 : 8,
               decoration: BoxDecoration(
                 color: _bannerIndex == index
-                    ? burgundy
-                    : const Color(0xFFE1D6CE),
+                    ? AppTheme.burgundy
+                    : context.adaptiveColor(
+                        const Color(0xFFE1D6CE),
+                        context.colors.outlineVariant,
+                      ),
                 borderRadius: BorderRadius.circular(20),
               ),
             ),
@@ -436,7 +462,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 3),
             child: Material(
-              color: Colors.white,
+              color: context.colors.surfaceContainerHigh,
               elevation: 2,
               shadowColor: Colors.black.withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(22),
@@ -451,8 +477,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       Icon(
                         icons[index],
                         color: index.isEven
-                            ? burgundy
-                            : const Color(0xFFDF6514),
+                            ? context.colors.primary
+                            : context.adaptiveColor(
+                                const Color(0xFFDF6514),
+                                context.colors.secondary,
+                              ),
                         size: 33,
                       ),
                       const SizedBox(height: 10),
@@ -460,8 +489,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         fit: BoxFit.scaleDown,
                         child: Text(
                           category,
-                          style: const TextStyle(
-                            color: ink,
+                          style: TextStyle(
+                            color: context.colors.onSurface,
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
                           ),
@@ -484,11 +513,11 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         Row(
           children: [
-            const Expanded(
+            Expanded(
               child: Text(
                 'Catégories',
                 style: TextStyle(
-                  color: ink,
+                  color: context.colors.onSurface,
                   fontSize: 23,
                   fontWeight: FontWeight.w900,
                 ),
@@ -496,9 +525,12 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             TextButton(
               onPressed: () => _selectCategory('Toutes'),
-              child: const Text(
+              child: Text(
                 'Voir tout →',
-                style: TextStyle(color: burgundy, fontWeight: FontWeight.w800),
+                style: TextStyle(
+                  color: context.colors.primary,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
           ],
@@ -517,7 +549,9 @@ class _HomeScreenState extends State<HomeScreen> {
               return AnimatedContainer(
                 duration: const Duration(milliseconds: 220),
                 decoration: BoxDecoration(
-                  color: selected ? burgundy : Colors.white,
+                  color: selected
+                      ? AppTheme.burgundy
+                      : context.colors.surfaceContainerHigh,
                   borderRadius: BorderRadius.circular(30),
                   boxShadow: [
                     BoxShadow(
@@ -543,7 +577,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         Text(
                           category,
                           style: TextStyle(
-                            color: selected ? Colors.white : ink,
+                            color: selected
+                                ? Colors.white
+                                : context.colors.onSurface,
                             fontWeight: FontWeight.w700,
                             fontSize: 13,
                           ),
@@ -566,11 +602,11 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         Row(
           children: [
-            const Expanded(
+            Expanded(
               child: Text(
                 'Offres disponibles',
                 style: TextStyle(
-                  color: burgundy,
+                  color: context.colors.primary,
                   fontSize: 22,
                   fontWeight: FontWeight.w900,
                 ),
@@ -578,15 +614,23 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             Text(
               '${offers.length} offres',
-              style: const TextStyle(color: Color(0xFF77716E), fontSize: 12),
+              style: TextStyle(
+                color: context.adaptiveColor(
+                  const Color(0xFF77716E),
+                  context.colors.onSurfaceVariant,
+                ),
+                fontSize: 12,
+              ),
             ),
           ],
         ),
         const SizedBox(height: 17),
         if (_isLoading)
-          const Padding(
+          Padding(
             padding: EdgeInsets.symmetric(vertical: 35),
-            child: Center(child: CircularProgressIndicator(color: burgundy)),
+            child: Center(
+              child: CircularProgressIndicator(color: context.colors.primary),
+            ),
           )
         else if (_errorMessage != null)
           Padding(
@@ -655,7 +699,10 @@ class _HomeScreenState extends State<HomeScreen> {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      backgroundColor: cream,
+      backgroundColor: context.adaptiveColor(
+        const Color(0xFFFFF6EE),
+        context.colors.surface,
+      ),
       builder: (sheetContext) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
@@ -675,7 +722,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     category == _selectedCategory
                         ? Icons.radio_button_checked
                         : Icons.radio_button_off,
-                    color: burgundy,
+                    color: context.colors.primary,
                   ),
                   onTap: () {
                     _selectCategory(category);
@@ -716,7 +763,7 @@ class _HomeOfferCardState extends State<_HomeOfferCard> {
         : null;
 
     return Material(
-      color: Colors.white,
+      color: context.colors.surfaceContainerHigh,
       elevation: 3,
       shadowColor: Colors.black.withValues(alpha: 0.14),
       borderRadius: BorderRadius.circular(23),
@@ -732,8 +779,11 @@ class _HomeOfferCardState extends State<_HomeOfferCard> {
                 fit: StackFit.expand,
                 children: [
                   if (offer.imageUrl == null)
-                    const ColoredBox(
-                      color: Color(0xFFF1E6DC),
+                    ColoredBox(
+                      color: context.adaptiveColor(
+                        const Color(0xFFF1E6DC),
+                        context.colors.surfaceContainerHighest,
+                      ),
                       child: Center(
                         child: Icon(
                           Icons.restaurant_rounded,
@@ -746,8 +796,11 @@ class _HomeOfferCardState extends State<_HomeOfferCard> {
                     Image.network(
                       offer.imageUrl!,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => const ColoredBox(
-                        color: Color(0xFFF1E6DC),
+                      errorBuilder: (_, _, _) => ColoredBox(
+                        color: context.adaptiveColor(
+                          const Color(0xFFF1E6DC),
+                          context.colors.surfaceContainerHighest,
+                        ),
                         child: Center(
                           child: Icon(
                             Icons.restaurant_rounded,
@@ -806,11 +859,16 @@ class _HomeOfferCardState extends State<_HomeOfferCard> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (offer.category != null)
+                    if (offer.isSurpriseBasket || offer.category != null)
                       Text(
-                        offer.category!.toUpperCase(),
-                        style: const TextStyle(
-                          color: Color(0xFFDC7C00),
+                        offer.isSurpriseBasket
+                            ? 'PANIER SURPRISE'
+                            : offer.category!.toUpperCase(),
+                        style: TextStyle(
+                          color: context.adaptiveColor(
+                            const Color(0xFFDC7C00),
+                            context.colors.secondary,
+                          ),
                           fontSize: 11,
                           fontWeight: FontWeight.w800,
                         ),
@@ -832,8 +890,11 @@ class _HomeOfferCardState extends State<_HomeOfferCard> {
                         offer.shopName!,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Color(0xFF77716E),
+                        style: TextStyle(
+                          color: context.adaptiveColor(
+                            const Color(0xFF77716E),
+                            context.colors.onSurfaceVariant,
+                          ),
                           fontSize: 12,
                         ),
                       ),
@@ -854,8 +915,11 @@ class _HomeOfferCardState extends State<_HomeOfferCard> {
                           const SizedBox(width: 8),
                           Text(
                             originalPrice.toStringAsFixed(3),
-                            style: const TextStyle(
-                              color: Color(0xFF99908B),
+                            style: TextStyle(
+                              color: context.adaptiveColor(
+                                const Color(0xFF99908B),
+                                context.colors.onSurfaceVariant,
+                              ),
                               fontSize: 11,
                               decoration: TextDecoration.lineThrough,
                             ),
@@ -894,15 +958,18 @@ class _PromoBanner extends StatelessWidget {
   final bool compact;
   final VoidCallback onDiscover;
 
-  Widget _imageFallback(double diameter) {
+  Widget _imageFallback(BuildContext context, double diameter) {
     return ColoredBox(
-      color: const Color(0xFFF2E6D8),
+      color: context.adaptiveColor(
+        const Color(0xFFF2E6D8),
+        context.colors.surfaceContainerHighest,
+      ),
       child: Center(
         child: fallbackImage.isEmpty
             ? Icon(
                 Icons.restaurant_rounded,
                 size: diameter * 0.48,
-                color: AppTheme.burgundy,
+                color: context.colors.primary,
               )
             : Text(fallbackImage, style: TextStyle(fontSize: diameter * 0.48)),
       ),
@@ -1027,13 +1094,13 @@ class _PromoBanner extends StatelessWidget {
                                 fit: StackFit.expand,
                                 children: [
                                   if (imageUrl.trim().isEmpty)
-                                    _imageFallback(diameter)
+                                    _imageFallback(context, diameter)
                                   else
                                     Image.network(
                                       imageUrl,
                                       fit: BoxFit.cover,
                                       errorBuilder: (_, _, _) =>
-                                          _imageFallback(diameter),
+                                          _imageFallback(context, diameter),
                                     ),
                                   const DecoratedBox(
                                     decoration: BoxDecoration(

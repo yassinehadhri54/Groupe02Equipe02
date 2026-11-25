@@ -39,6 +39,8 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
     'pickupStart': widget.offer?.pickupStart,
     'pickupEnd': widget.offer?.pickupEnd,
     'imageURL': widget.offer?.imageUrl ?? '',
+    'foodInfo': widget.offer?.foodInfo ?? '',
+    'allergenInfo': widget.offer?.allergenInfo ?? '',
   };
   late final _fields = _initialFields.map(
     (key, value) => MapEntry(
@@ -50,6 +52,7 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
       ),
     ),
   );
+  late bool _isBasket = widget.offer?.isSurpriseBasket ?? false;
   bool _saving = false;
   String? _error;
 
@@ -105,7 +108,10 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
   Future<void> _save() async {
     if (_saving || !_form.currentState!.validate()) return;
     final fields = <String, Object>{
-      for (final key in _fields.keys) key: _text(key),
+      for (final key in _fields.keys)
+        if (_isBasket || (key != 'foodInfo' && key != 'allergenInfo'))
+          key: _text(key),
+      if (_isBasket && widget.offer == null) 'offerType': 'surprise_basket',
       'originalPrice': _price('originalPrice')!,
       'discountPrice': _price('discountPrice')!,
       'quantity': int.parse(_text('quantity')),
@@ -153,7 +159,20 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
     if (field == 'discountPrice' && original != null && price >= original) {
       return 'Le prix réduit doit être inférieur au prix initial.';
     }
+    if (_isBasket &&
+        field == 'discountPrice' &&
+        original != null &&
+        price > original / 2) {
+      return 'Un panier surprise coûte au maximum 50 % du prix initial.';
+    }
     return null;
+  }
+
+  String? _basketInfoError(String? value) {
+    final length = value?.trim().length ?? 0;
+    return length < 1 || length > 500
+        ? 'Saisis entre 1 et 500 caractères.'
+        : null;
   }
 
   String? _quantityError(String? value) {
@@ -223,8 +242,31 @@ class _CreateOfferScreenState extends State<CreateOfferScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  if (widget.offer == null)
+                    SwitchListTile(
+                      key: const ValueKey('surprise-basket-switch'),
+                      title: const Text('Panier surprise'),
+                      value: _isBasket,
+                      onChanged: _saving
+                          ? null
+                          : (value) => setState(() => _isBasket = value),
+                    ),
                   _field('name', 'Nom', validator: _nameError),
                   _field('description', 'Description (facultative)', lines: 3),
+                  if (_isBasket) ...[
+                    _field(
+                      'foodInfo',
+                      'Informations alimentaires',
+                      lines: 2,
+                      validator: _basketInfoError,
+                    ),
+                    _field(
+                      'allergenInfo',
+                      'Allergènes et traces possibles',
+                      lines: 2,
+                      validator: _basketInfoError,
+                    ),
+                  ],
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [

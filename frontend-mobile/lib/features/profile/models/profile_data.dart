@@ -5,6 +5,7 @@ class ProfileData {
     this.phone,
     this.photoUrl,
     this.role,
+    this.ecoPoints = 0,
   });
 
   factory ProfileData.fromJson(Map<String, dynamic> json) {
@@ -14,6 +15,7 @@ class ProfileData {
       phone: _optionalString(json['phone']),
       photoUrl: _optionalString(json['photoURL']),
       role: _optionalString(json['role']),
+      ecoPoints: json['ecoPoints'] is int ? json['ecoPoints'] as int : 0,
     );
   }
 
@@ -22,6 +24,7 @@ class ProfileData {
   final String? phone;
   final String? photoUrl;
   final String? role;
+  final int ecoPoints;
 }
 
 String? _optionalString(Object? value) {

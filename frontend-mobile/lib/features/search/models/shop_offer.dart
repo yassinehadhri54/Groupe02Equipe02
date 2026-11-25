@@ -19,6 +19,9 @@ class ShopOffer {
     this.isExpired,
     this.isSoldOut,
     this.adminDisabled = false,
+    this.isSurpriseBasket = false,
+    this.foodInfo,
+    this.allergenInfo,
   });
 
   factory ShopOffer.fromJson(Map<String, dynamic> json) {
@@ -50,6 +53,9 @@ class ShopOffer {
       isExpired: _boolValue(json['isExpired']),
       isSoldOut: _boolValue(json['isSoldOut']),
       adminDisabled: json['adminDisabled'] == true,
+      isSurpriseBasket: json['offerType'] == 'surprise_basket',
+      foodInfo: _stringValue(json['foodInfo']),
+      allergenInfo: _stringValue(json['allergenInfo']),
     );
   }
 
@@ -70,6 +76,9 @@ class ShopOffer {
   final bool? isExpired;
   final bool? isSoldOut;
   final bool adminDisabled;
+  final bool isSurpriseBasket;
+  final String? foodInfo;
+  final String? allergenInfo;
 
   bool get isUnavailable =>
       adminDisabled ||

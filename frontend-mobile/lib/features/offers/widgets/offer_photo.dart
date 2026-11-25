@@ -16,17 +16,17 @@ class OfferPhoto extends StatelessWidget {
       imageUrl: imageUrl,
       fit: BoxFit.cover,
       placeholder: (context, url) => Shimmer.fromColors(
-        baseColor: AppTheme.cream,
-        highlightColor: Colors.white,
-        child: const ColoredBox(color: AppTheme.cream),
+        baseColor: context.colors.surface,
+        highlightColor: context.colors.surfaceContainerHigh,
+        child: ColoredBox(color: context.colors.surface),
       ),
       errorWidget: (context, url, error) => ColoredBox(
-        color: AppTheme.cream,
+        color: context.colors.surface,
         child: Center(
           child: Icon(
             Icons.restaurant_outlined,
             size: iconSize,
-            color: AppTheme.burgundy,
+            color: context.colors.primary,
           ),
         ),
       ),

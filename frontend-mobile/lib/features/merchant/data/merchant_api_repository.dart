@@ -34,13 +34,19 @@ class MerchantApiRepository {
     required String phone,
     required String email,
     required String description,
+    double? latitude,
+    double? longitude,
     bool edit = false,
   }) async {
     final body = {
       'name': name,
       'address': address,
       'phone': phone,
-      if (edit || email.isNotEmpty) 'email': email,
+      if (email.isNotEmpty) 'email': email,
+      if (latitude != null && longitude != null) ...{
+        'latitude': latitude,
+        'longitude': longitude,
+      },
       'description': description,
     };
     final response = edit

@@ -76,7 +76,7 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
     final offer = _offer;
     if (_isLoading) {
       return _buildStatusPage(
-        body: const CircularProgressIndicator(color: AppTheme.burgundy),
+        body: CircularProgressIndicator(color: context.colors.primary),
       );
     }
 
@@ -120,21 +120,21 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
                     tooltip: 'Retour',
                     onPressed: () => Navigator.of(context).maybePop(),
                     style: IconButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: AppTheme.burgundy,
+                      backgroundColor: context.colors.surfaceContainerHigh,
+                      foregroundColor: context.colors.primary,
                     ),
                     icon: const Icon(Icons.arrow_back_rounded),
                   ),
                 ),
                 flexibleSpace: FlexibleSpaceBar(
                   background: offer.imageUrl == null
-                      ? const ColoredBox(
-                          color: AppTheme.cream,
+                      ? ColoredBox(
+                          color: context.colors.surface,
                           child: Center(
                             child: Icon(
                               Icons.restaurant_outlined,
                               size: 56,
-                              color: AppTheme.burgundy,
+                              color: context.colors.primary,
                             ),
                           ),
                         )
@@ -147,6 +147,11 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      if (offer.isSurpriseBasket)
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Chip(label: Text('Panier surprise')),
+                        ),
                       if (offer.category != null) ...[
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -159,8 +164,8 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
                           ),
                           child: Text(
                             offer.category!.toUpperCase(),
-                            style: const TextStyle(
-                              color: AppTheme.burgundy,
+                            style: TextStyle(
+                              color: context.colors.primary,
                               fontWeight: FontWeight.w800,
                               letterSpacing: 0.8,
                             ),
@@ -172,7 +177,7 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
                         offer.name,
                         style: Theme.of(context).textTheme.headlineSmall
                             ?.copyWith(
-                              color: AppTheme.ink,
+                              color: context.colors.onSurface,
                               fontWeight: FontWeight.w800,
                             ),
                       ).animate().fadeIn(duration: 250.ms).slideY(begin: 0.06),
@@ -191,13 +196,27 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
                                 offer.shopName!,
                                 style: Theme.of(context).textTheme.bodyLarge
                                     ?.copyWith(
-                                      color: AppTheme.ink.withValues(
-                                        alpha: 0.7,
-                                      ),
+                                      color: context.colors.onSurfaceVariant,
                                     ),
                               ),
                             ),
                           ],
+                        ),
+                      ],
+                      if (offer.isSurpriseBasket) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          'Informations alimentaires',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        Text(offer.foodInfo ?? 'Informations non renseignées.'),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Allergènes et traces possibles',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        Text(
+                          offer.allergenInfo ?? 'Non renseignés. Demande confirmation au commerce.',
                         ),
                       ],
                       if (offer.description != null) ...[
@@ -206,7 +225,7 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
                           'À propos de cette offre',
                           style: Theme.of(context).textTheme.titleLarge
                               ?.copyWith(
-                                color: AppTheme.burgundy,
+                                color: context.colors.primary,
                                 fontWeight: FontWeight.w800,
                               ),
                         ),
@@ -215,7 +234,7 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
                           offer.description!,
                           style: Theme.of(context).textTheme.bodyLarge
                               ?.copyWith(
-                                color: AppTheme.ink.withValues(alpha: 0.75),
+                                color: context.colors.onSurfaceVariant,
                                 height: 1.5,
                               ),
                         ),
@@ -236,17 +255,17 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
                           key: const ValueKey('offer-pickup-window'),
                           style: Theme.of(context).textTheme.bodyMedium
                               ?.copyWith(
-                                color: AppTheme.ink.withValues(alpha: 0.7),
+                                color: context.colors.onSurfaceVariant,
                               ),
                         ),
                       ],
                       if (offer.isUnavailable) ...[
                         const SizedBox(height: 20),
-                        const Text(
+                        Text(
                           'Cette offre n’est plus disponible.',
                           key: ValueKey('offer-unavailable'),
                           style: TextStyle(
-                            color: AppTheme.burgundy,
+                            color: context.colors.primary,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -260,7 +279,7 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
                               _formatPrice(offer.discountPrice!),
                               style: Theme.of(context).textTheme.headlineSmall
                                   ?.copyWith(
-                                    color: AppTheme.burgundy,
+                                    color: context.colors.primary,
                                     fontWeight: FontWeight.w800,
                                   ),
                             ),
@@ -272,9 +291,7 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
                                   _formatPrice(offer.originalPrice!),
                                   style: Theme.of(context).textTheme.bodyLarge
                                       ?.copyWith(
-                                        color: AppTheme.ink.withValues(
-                                          alpha: 0.55,
-                                        ),
+                                        color: context.colors.onSurfaceVariant,
                                         decoration: TextDecoration.lineThrough,
                                       ),
                                 ),
@@ -308,7 +325,10 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
   Widget _buildStatusPage({required Widget body}) {
     return Scaffold(
       key: const ValueKey('offer-detail-screen'),
-      backgroundColor: const Color(0xFFFFF7F0),
+      backgroundColor: context.adaptiveColor(
+        const Color(0xFFFFF7F0),
+        context.colors.surface,
+      ),
       appBar: AppBar(
         title: const Text('Détail de l’offre'),
         backgroundColor: AppTheme.burgundy,
@@ -325,9 +345,14 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.colors.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFEAE2D9)),
+        border: Border.all(
+          color: context.adaptiveColor(
+            const Color(0xFFEAE2D9),
+            context.colors.outlineVariant,
+          ),
+        ),
       ),
       child: Row(
         children: [
@@ -364,8 +389,8 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
       top: false,
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-        decoration: const BoxDecoration(
-          color: Colors.white,
+        decoration: BoxDecoration(
+          color: context.colors.surfaceContainerHigh,
           boxShadow: [
             BoxShadow(
               color: Color(0x14000000),
@@ -394,7 +419,7 @@ class _OfferDetailScreenState extends State<OfferDetailScreen> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: AppTheme.burgundy,
+                      color: context.colors.primary,
                       fontWeight: FontWeight.w800,
                     ),
                   ),

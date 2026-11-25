@@ -16,10 +16,12 @@ import 'package:material_ui/material_ui.dart';
 import 'package:myfirstflutterp/core/theme/app_theme.dart';
 import 'package:myfirstflutterp/core/network/auth_repository.dart';
 import 'package:myfirstflutterp/core/widgets/main_navigation.dart';
+import 'package:myfirstflutterp/features/admin/screens/admin_dashboard_screen.dart';
 import 'package:myfirstflutterp/features/auth/screens/login_screen.dart';
 import 'package:myfirstflutterp/features/auth/screens/register_screen.dart';
 import 'package:myfirstflutterp/features/bookings/screens/booking_summary_screen.dart';
 import 'package:myfirstflutterp/features/bookings/data/reservation_repository.dart';
+import 'package:myfirstflutterp/features/merchant/screens/merchant_dashboard_screen.dart';
 import 'package:myfirstflutterp/features/offers/screens/offer_detail_screen.dart';
 import 'package:myfirstflutterp/features/home/screens/home_screen.dart';
 import 'package:myfirstflutterp/features/search/data/shop_repository.dart';
@@ -58,7 +60,11 @@ const _testReservationsResponse =
 const _createdReservationResponse =
     '{"success":true,"data":{"reservationId":"res-created","offerId":"offer-1","offerName":"Sandwich frais","shopName":"Commerce test","quantity":2,"unitPrice":3.5,"totalPrice":7,"status":"pending","paymentStatus":"unpaid"}}';
 
-AuthRepository _createTestAuthRepository({bool authenticated = false}) {
+AuthRepository _createTestAuthRepository({
+  bool authenticated = false,
+  String role = 'student',
+  void Function()? onRestore,
+}) {
   return AuthRepository(
     tokenStore: _MemoryAuthTokenStore(authenticated: authenticated),
     client: MockClient((request) async {
@@ -77,8 +83,9 @@ AuthRepository _createTestAuthRepository({bool authenticated = false}) {
         );
       }
       if (request.url.path.endsWith('/api/auth/me')) {
+        onRestore?.call();
         return http.Response(
-          '{"success":true,"user":{"uid":"student-1","email":"etudiant@example.com","fullName":"Malek Campus","role":"student","status":"active"}}',
+          '{"success":true,"user":{"uid":"student-1","email":"etudiant@example.com","fullName":"Malek Campus","role":"$role","status":"active"}}',
           200,
           headers: {'Content-Type': 'application/json'},
         );
@@ -175,6 +182,109 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
   });
+
+  testWidgets('theme switches on login and persists across app launches', (
+    tester,
+  ) async {
+    _configureViewport(tester, const Size(412, 915));
+    final repository = _createTestAuthRepository();
+    const darkModeKey = 'campussave_dark_mode';
+
+    Future<void> launch() async {
+      await tester.pumpWidget(CampusSaveApp(authRepository: repository));
+      await tester.pumpAndSettle();
+    }
+
+    ThemeData loginTheme() =>
+        Theme.of(tester.element(find.byType(LoginScreen)));
+
+    await launch();
+    expect(loginTheme().brightness, Brightness.light);
+    expect(find.byIcon(Icons.wb_sunny_rounded), findsOneWidget);
+
+    await tester.enterText(
+      find.byType(TextFormField).first,
+      'theme@example.test',
+    );
+    await tester.tap(find.byTooltip('Activer le mode nuit'));
+    await tester.pumpAndSettle();
+
+    expect(loginTheme().brightness, Brightness.dark);
+    expect(loginTheme().scaffoldBackgroundColor, const Color(0xFF171717));
+    expect(loginTheme().colorScheme.onSurface, const Color(0xFFF5F5F5));
+    final editable = tester.widget<EditableText>(
+      find.byType(EditableText).first,
+    );
+    final field = tester.widget<TextField>(find.byType(TextField).first);
+    expect(editable.style.color, const Color(0xFFF5F5F5));
+    expect(field.decoration?.fillColor, const Color(0xFF222222));
+    expect(find.text('theme@example.test'), findsOneWidget);
+    expect(find.byIcon(Icons.nightlight_round), findsOneWidget);
+    expect((await SharedPreferences.getInstance()).getBool(darkModeKey), true);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    await launch();
+    expect(loginTheme().brightness, Brightness.dark);
+
+    await tester.tap(find.byTooltip('Activer le mode jour'));
+    await tester.pumpAndSettle();
+    expect(loginTheme().brightness, Brightness.light);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    await launch();
+    expect(loginTheme().brightness, Brightness.light);
+    expect((await SharedPreferences.getInstance()).getBool(darkModeKey), false);
+  });
+
+  for (final (role, destination) in <(String, Type)>[
+    ('student', MainNavigation),
+    ('merchant', MerchantDashboardScreen),
+    ('admin', AdminDashboardScreen),
+  ]) {
+    testWidgets('theme change preserves the $role session and screen', (
+      tester,
+    ) async {
+      _configureViewport(tester, const Size(412, 915));
+      var restorations = 0;
+      final repository = _createTestAuthRepository(
+        authenticated: true,
+        role: role,
+        onRestore: () => restorations++,
+      );
+
+      await repository.saveSession(
+        AuthSession(
+          user: AuthUser(
+            uid: 'student-1',
+            email: 'etudiant@example.com',
+            fullName: 'Malek Campus',
+            role: role,
+            status: 'active',
+          ),
+          idToken: 'test-token',
+          refreshToken: 'test-refresh',
+        ),
+      );
+
+      await tester.pumpWidget(CampusSaveApp(authRepository: repository));
+      await tester.pumpAndSettle();
+      final page = find.byType(destination);
+      expect(page, findsOneWidget);
+      final initialElement = tester.element(page);
+      expect(Theme.of(initialElement).brightness, Brightness.light);
+
+      await tester.tap(find.byTooltip('Activer le mode nuit'));
+      await tester.pumpAndSettle();
+
+      expect(page, findsOneWidget);
+      expect(tester.element(page), same(initialElement));
+      expect(Theme.of(initialElement).brightness, Brightness.dark);
+      expect(restorations, 1);
+      expect(find.byType(LoginScreen), findsNothing);
+    });
+  }
 
   test('legacy session tokens migrate to secure storage', () async {
     SharedPreferences.setMockInitialValues({

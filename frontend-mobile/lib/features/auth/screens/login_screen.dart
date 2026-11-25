@@ -44,14 +44,13 @@ class _LoginScreenState extends State<LoginScreen> {
       await _authRepository.saveSession(session);
       if (!mounted) return;
       final destination = sessionDestination(_authRepository, session);
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute<void>(builder: (_) => destination),
-      );
+      Navigator.of(
+        context,
+      ).pushReplacement(MaterialPageRoute<void>(builder: (_) => destination));
     } on AuthException catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.message)));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -65,9 +64,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void _register() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => RegisterScreen(
-          authRepository: _authRepository,
-        ),
+        builder: (_) => RegisterScreen(authRepository: _authRepository),
       ),
     );
   }
@@ -79,31 +76,50 @@ class _LoginScreenState extends State<LoginScreen> {
   }) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: const TextStyle(color: Color(0xFF77716E), fontSize: 15),
-      prefixIcon: Icon(icon, color: AppTheme.ink, size: 22),
+      hintStyle: TextStyle(
+        color: context.adaptiveColor(
+          const Color(0xFF77716E),
+          context.colors.onSurfaceVariant,
+        ),
+        fontSize: 15,
+      ),
+      prefixIcon: Icon(icon, color: context.colors.onSurface, size: 22),
       suffixIcon: suffixIcon,
       filled: true,
-      fillColor: const Color(0xFFFFFCF9),
+      fillColor: context.adaptiveColor(
+        const Color(0xFFFFFCF9),
+        context.colors.surfaceContainerLow,
+      ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 19),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
-        borderSide: const BorderSide(color: Color(0xFFE4D9CF)),
+        borderSide: BorderSide(
+          color: context.adaptiveColor(
+            const Color(0xFFE4D9CF),
+            context.colors.outlineVariant,
+          ),
+        ),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
-        borderSide: const BorderSide(color: Color(0xFFE4D9CF)),
+        borderSide: BorderSide(
+          color: context.adaptiveColor(
+            const Color(0xFFE4D9CF),
+            context.colors.outlineVariant,
+          ),
+        ),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
-        borderSide: const BorderSide(color: AppTheme.burgundy, width: 1.5),
+        borderSide: BorderSide(color: context.colors.primary, width: 1.5),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
-        borderSide: const BorderSide(color: Colors.red),
+        borderSide: BorderSide(color: context.colors.error),
       ),
       focusedErrorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(20),
-        borderSide: const BorderSide(color: Colors.red, width: 1.5),
+        borderSide: BorderSide(color: context.colors.error, width: 1.5),
       ),
     );
   }
@@ -126,21 +142,21 @@ class _LoginScreenState extends State<LoginScreen> {
 
             SizedBox(height: compact ? 24 : 38),
 
-            const Text(
+            Text(
               'Connexion',
               style: TextStyle(
                 fontSize: 37,
                 fontWeight: FontWeight.w800,
                 letterSpacing: -1.2,
-                color: AppTheme.ink,
+                color: context.colors.onSurface,
               ),
             ),
 
             const SizedBox(height: 6),
 
-            const Text(
+            Text(
               'Accède à ton compte CampusSave',
-              style: TextStyle(fontSize: 15, color: AppTheme.ink),
+              style: TextStyle(fontSize: 15, color: context.colors.onSurface),
             ),
 
             SizedBox(height: compact ? 20 : 28),
@@ -184,7 +200,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     _hidePassword
                         ? Icons.visibility_outlined
                         : Icons.visibility_off_outlined,
-                    color: AppTheme.ink,
+                    color: context.colors.onSurface,
                   ),
                   onPressed: () {
                     setState(() {
@@ -209,12 +225,12 @@ class _LoginScreenState extends State<LoginScreen> {
                 onPressed: () => _showComingSoon(
                   'Récupération du mot de passe bientôt disponible.',
                 ),
-                child: const Text(
+                child: Text(
                   'Mot de passe oublié ?',
                   style: TextStyle(
-                    color: AppTheme.burgundy,
+                    color: context.colors.primary,
                     decoration: TextDecoration.underline,
-                    decorationColor: AppTheme.burgundy,
+                    decorationColor: context.colors.primary,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -255,14 +271,17 @@ class _LoginScreenState extends State<LoginScreen> {
 
             SizedBox(height: compact ? 22 : 32),
 
-            const Row(
+            Row(
               children: [
                 Expanded(child: Divider()),
                 Padding(
                   padding: EdgeInsets.symmetric(horizontal: 17),
                   child: Text(
                     'ou',
-                    style: TextStyle(color: AppTheme.ink, fontSize: 15),
+                    style: TextStyle(
+                      color: context.colors.onSurface,
+                      fontSize: 15,
+                    ),
                   ),
                 ),
                 Expanded(child: Divider()),
@@ -278,9 +297,17 @@ class _LoginScreenState extends State<LoginScreen> {
                 onPressed: () =>
                     _showComingSoon('Connexion Google bientôt disponible.'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: AppTheme.ink,
-                  backgroundColor: const Color(0xFFFFFCF9),
-                  side: const BorderSide(color: Color(0xFFD7CBC1)),
+                  foregroundColor: context.colors.onSurface,
+                  backgroundColor: context.adaptiveColor(
+                    const Color(0xFFFFFCF9),
+                    context.colors.surfaceContainerLow,
+                  ),
+                  side: BorderSide(
+                    color: context.adaptiveColor(
+                      const Color(0xFFD7CBC1),
+                      context.colors.outlineVariant,
+                    ),
+                  ),
                   shape: const StadiumBorder(),
                 ),
                 child: Row(
@@ -319,18 +346,21 @@ class _LoginScreenState extends State<LoginScreen> {
               crossAxisAlignment: WrapCrossAlignment.center,
               spacing: 4,
               children: [
-                const Text(
+                Text(
                   'Pas encore de compte ?',
-                  style: TextStyle(fontSize: 14, color: AppTheme.ink),
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: context.colors.onSurface,
+                  ),
                 ),
                 TextButton(
                   key: const ValueKey('login-register'),
                   onPressed: _register,
-                  child: const Text(
+                  child: Text(
                     "S'inscrire",
                     style: TextStyle(
                       fontSize: 16,
-                      color: AppTheme.burgundy,
+                      color: context.colors.primary,
                       fontWeight: FontWeight.w800,
                     ),
                   ),

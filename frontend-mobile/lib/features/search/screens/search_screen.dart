@@ -1,9 +1,11 @@
-
 import '../../../core/network/auth_repository.dart';
+
 import 'package:material_ui/material_ui.dart';
+
 import '../../offers/screens/offer_detail_screen.dart';
 import '../data/shop_repository.dart';
 import '../models/shop_offer.dart';
+import '../../../core/theme/app_theme.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key, this.repository});
@@ -15,19 +17,16 @@ class SearchScreen extends StatefulWidget {
 }
 
 class _SearchScreenState extends State<SearchScreen> {
-  static const burgundy = Color(0xFF8F0401);
   static const darkRed = Color(0xFF690000);
-  static const cream = Color(0xFFFFF7F0);
-  static const ink = Color(0xFF292323);
 
   final _searchController = TextEditingController();
   final _maxPriceController = TextEditingController();
   late final ShopRepository _repository =
-      widget.repository ??
-      ShopRepository(authRepository: AuthRepository());
+      widget.repository ?? ShopRepository(authRepository: AuthRepository());
 
   String _query = '';
   String _category = 'Tous';
+  bool _basketsOnly = false;
   double? _maxPrice;
   List<ShopOffer> _offers = const [];
   List<String> _categories = const ['Tous'];
@@ -41,7 +40,8 @@ class _SearchScreenState extends State<SearchScreen> {
           '${offer.name} ${offer.shopName ?? ''} ${offer.category ?? ''} '
                   '${offer.description ?? ''}'
               .toLowerCase();
-      return text.contains(normalized) &&
+      return (!_basketsOnly || offer.isSurpriseBasket) &&
+          text.contains(normalized) &&
           (_maxPrice == null ||
               (offer.discountPrice != null &&
                   offer.discountPrice! <= _maxPrice!));
@@ -89,6 +89,7 @@ class _SearchScreenState extends State<SearchScreen> {
       if (mounted) setState(() => _isLoading = false);
     }
   }
+
   void _selectCategory(String category) {
     setState(() => _category = category);
     _loadOffers(query: _query);
@@ -98,7 +99,10 @@ class _SearchScreenState extends State<SearchScreen> {
     _maxPriceController.text = _maxPrice?.toString() ?? '';
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: cream,
+      backgroundColor: context.adaptiveColor(
+        const Color(0xFFFFF7F0),
+        context.colors.surface,
+      ),
       showDragHandle: true,
       isScrollControlled: true,
       builder: (sheetContext) {
@@ -111,12 +115,12 @@ class _SearchScreenState extends State<SearchScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Filtrer les offres',
                       style: TextStyle(
                         fontSize: 23,
                         fontWeight: FontWeight.w900,
-                        color: ink,
+                        color: context.colors.onSurface,
                       ),
                     ),
                     const SizedBox(height: 18),
@@ -154,15 +158,13 @@ class _SearchScreenState extends State<SearchScreen> {
                           _loadOffers(query: _query);
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: burgundy,
+                          backgroundColor: AppTheme.burgundy,
                           foregroundColor: Colors.white,
                           shape: const StadiumBorder(),
                         ),
                         child: const Text(
                           'Afficher les résultats',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                          ),
+                          style: TextStyle(fontWeight: FontWeight.w800),
                         ),
                       ),
                     ),
@@ -179,10 +181,8 @@ class _SearchScreenState extends State<SearchScreen> {
   void _openOffer(ShopOffer offer) {
     Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (_) => OfferDetailScreen(
-          offer: offer,
-          repository: _repository,
-        ),
+        builder: (_) =>
+            OfferDetailScreen(offer: offer, repository: _repository),
       ),
     );
   }
@@ -193,7 +193,10 @@ class _SearchScreenState extends State<SearchScreen> {
 
     return Scaffold(
       key: const ValueKey('search-screen'),
-      backgroundColor: cream,
+      backgroundColor: context.adaptiveColor(
+        const Color(0xFFFFF7F0),
+        context.colors.surface,
+      ),
       body: Stack(
         children: [
           CustomScrollView(
@@ -213,15 +216,21 @@ class _SearchScreenState extends State<SearchScreen> {
                           _buildSearchBar(),
                           const SizedBox(height: 22),
                           _buildCategories(),
+                          FilterChip(
+                            label: const Text('Paniers surprises'),
+                            selected: _basketsOnly,
+                            onSelected: (value) =>
+                                setState(() => _basketsOnly = value),
+                          ),
                           const SizedBox(height: 30),
                           _buildSectionTitle(results.length),
                           const SizedBox(height: 16),
                           if (_isLoading)
-                            const Center(
+                            Center(
                               child: Padding(
                                 padding: EdgeInsets.all(32),
                                 child: CircularProgressIndicator(
-                                  color: burgundy,
+                                  color: context.colors.primary,
                                 ),
                               ),
                             )
@@ -231,9 +240,8 @@ class _SearchScreenState extends State<SearchScreen> {
                             _buildEmptyState()
                           else
                             ...results.map(
-                                  (offer) => Padding(
-                                padding:
-                                const EdgeInsets.only(bottom: 14),
+                              (offer) => Padding(
+                                padding: const EdgeInsets.only(bottom: 14),
                                 child: _buildOfferCard(offer),
                               ),
                             ),
@@ -259,9 +267,7 @@ class _SearchScreenState extends State<SearchScreen> {
           end: Alignment.bottomRight,
           colors: [Color(0xFFB00000), darkRed],
         ),
-        borderRadius: BorderRadius.vertical(
-          bottom: Radius.elliptical(220, 48),
-        ),
+        borderRadius: BorderRadius.vertical(bottom: Radius.elliptical(220, 48)),
       ),
       child: SafeArea(
         bottom: false,
@@ -307,22 +313,22 @@ class _SearchScreenState extends State<SearchScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text.rich(
+              Text.rich(
                 TextSpan(
                   children: [
-                    TextSpan(text: 'Trouve une '),
+                    const TextSpan(text: 'Trouve une '),
                     TextSpan(
                       text: 'offre',
-                      style: TextStyle(color: burgundy),
+                      style: TextStyle(color: context.colors.primary),
                     ),
-                    TextSpan(text: '\nsur ton campus'),
+                    const TextSpan(text: '\nsur ton campus'),
                   ],
                 ),
                 style: TextStyle(
                   fontSize: 24,
                   height: 1.22,
                   fontWeight: FontWeight.w900,
-                  color: ink,
+                  color: context.colors.onSurface,
                 ),
               ),
               const SizedBox(height: 12),
@@ -331,7 +337,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 style: TextStyle(
                   fontSize: 13,
                   height: 1.5,
-                  color: ink.withValues(alpha: 0.68),
+                  color: context.colors.onSurfaceVariant,
                 ),
               ),
             ],
@@ -342,13 +348,14 @@ class _SearchScreenState extends State<SearchScreen> {
           flex: 4,
           child: Container(
             height: 150,
-            decoration: const BoxDecoration(
-              color: Color(0xFFFCE3D9),
+            decoration: BoxDecoration(
+              color: context.adaptiveColor(
+                const Color(0xFFFCE3D9),
+                context.colors.surfaceContainerHighest,
+              ),
               shape: BoxShape.circle,
             ),
-            child: const Center(
-              child: _ShopIllustration(),
-            ),
+            child: const Center(child: _ShopIllustration()),
           ),
         ),
       ],
@@ -362,11 +369,11 @@ class _SearchScreenState extends State<SearchScreen> {
           child: Container(
             height: 58,
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: context.colors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(35),
               boxShadow: [
                 BoxShadow(
-                  color: burgundy.withValues(alpha: 0.11),
+                  color: context.colors.primary.withValues(alpha: 0.11),
                   blurRadius: 20,
                   offset: const Offset(0, 8),
                 ),
@@ -380,31 +387,31 @@ class _SearchScreenState extends State<SearchScreen> {
               },
               onSubmitted: (value) => _loadOffers(query: value),
               textInputAction: TextInputAction.search,
-              style: const TextStyle(
-                color: ink,
-                fontSize: 14,
-              ),
+              style: TextStyle(color: context.colors.onSurface, fontSize: 14),
               decoration: InputDecoration(
                 hintText: 'Rechercher une offre alimentaire...',
-                hintStyle: const TextStyle(
+                hintStyle: TextStyle(
                   fontSize: 12,
-                  color: Color(0xFF918984),
+                  color: context.adaptiveColor(
+                    const Color(0xFF918984),
+                    context.colors.onSurfaceVariant,
+                  ),
                 ),
-                prefixIcon: const Icon(
+                prefixIcon: Icon(
                   Icons.search_rounded,
-                  color: burgundy,
+                  color: context.colors.primary,
                   size: 28,
                 ),
                 suffixIcon: _query.isNotEmpty
                     ? IconButton(
-                  tooltip: 'Effacer',
-                  onPressed: () {
-                    _searchController.clear();
-                    setState(() => _query = '');
-                    _loadOffers(query: '');
-                  },
-                  icon: const Icon(Icons.close_rounded),
-                )
+                        tooltip: 'Effacer',
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _query = '');
+                          _loadOffers(query: '');
+                        },
+                        icon: const Icon(Icons.close_rounded),
+                      )
                     : null,
                 filled: true,
                 fillColor: Colors.transparent,
@@ -420,27 +427,26 @@ class _SearchScreenState extends State<SearchScreen> {
                   borderRadius: BorderRadius.circular(35),
                   borderSide: BorderSide.none,
                 ),
-                contentPadding:
-                const EdgeInsets.symmetric(vertical: 18),
+                contentPadding: const EdgeInsets.symmetric(vertical: 18),
               ),
             ),
           ),
         ),
         const SizedBox(width: 10),
         Material(
-          color: Colors.white,
+          color: context.colors.surfaceContainerHigh,
           elevation: 3,
-          shadowColor: burgundy.withValues(alpha: 0.15),
+          shadowColor: context.colors.primary.withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(24),
           child: InkWell(
             onTap: _showFilters,
             borderRadius: BorderRadius.circular(24),
-            child: const SizedBox(
+            child: SizedBox(
               width: 58,
               height: 58,
               child: Icon(
                 Icons.tune_rounded,
-                color: burgundy,
+                color: context.colors.primary,
                 size: 28,
               ),
             ),
@@ -473,7 +479,9 @@ class _SearchScreenState extends State<SearchScreen> {
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 250),
               decoration: BoxDecoration(
-                color: selected ? burgundy : Colors.white,
+                color: selected
+                    ? AppTheme.burgundy
+                    : context.colors.surfaceContainerHigh,
                 borderRadius: BorderRadius.circular(23),
                 boxShadow: [
                   BoxShadow(
@@ -498,7 +506,10 @@ class _SearchScreenState extends State<SearchScreen> {
                           size: 28,
                           color: selected
                               ? Colors.white
-                              : const Color(0xFFE36B10),
+                              : context.adaptiveColor(
+                                  const Color(0xFFE36B10),
+                                  context.colors.secondary,
+                                ),
                         ),
                         const SizedBox(height: 9),
                         FittedBox(
@@ -507,7 +518,9 @@ class _SearchScreenState extends State<SearchScreen> {
                             category,
                             maxLines: 1,
                             style: TextStyle(
-                              color: selected ? Colors.white : ink,
+                              color: selected
+                                  ? Colors.white
+                                  : context.colors.onSurface,
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
                             ),
@@ -528,11 +541,11 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget _buildSectionTitle(int count) {
     return Row(
       children: [
-        const Expanded(
+        Expanded(
           child: Text(
             'Offres alimentaires',
             style: TextStyle(
-              color: ink,
+              color: context.colors.onSurface,
               fontSize: 21,
               fontWeight: FontWeight.w900,
             ),
@@ -540,8 +553,11 @@ class _SearchScreenState extends State<SearchScreen> {
         ),
         Text(
           '$count',
-          style: const TextStyle(
-            color: Color(0xFF746B66),
+          style: TextStyle(
+            color: context.adaptiveColor(
+              const Color(0xFF746B66),
+              context.colors.onSurfaceVariant,
+            ),
             fontSize: 12,
           ),
         ),
@@ -552,33 +568,26 @@ class _SearchScreenState extends State<SearchScreen> {
             if (value == 'price') _showFilters();
           },
           itemBuilder: (_) => const [
-            PopupMenuItem(
-              value: 'price',
-              child: Text('Prix maximum'),
-            ),
+            PopupMenuItem(value: 'price', child: Text('Prix maximum')),
           ],
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(
-                Icons.tune_rounded,
-                color: burgundy,
-                size: 18,
-              ),
+              Icon(Icons.tune_rounded, color: context.colors.primary, size: 18),
               const SizedBox(width: 3),
               Text(
                 _maxPrice == null
                     ? 'Filtres'
                     : '≤ ${_maxPrice!.toStringAsFixed(2)} DT',
-                style: const TextStyle(
-                  color: burgundy,
+                style: TextStyle(
+                  color: context.colors.primary,
                   fontSize: 11,
                   fontWeight: FontWeight.w800,
                 ),
               ),
-              const Icon(
+              Icon(
                 Icons.keyboard_arrow_down_rounded,
-                color: burgundy,
+                color: context.colors.primary,
                 size: 17,
               ),
             ],
@@ -592,9 +601,9 @@ class _SearchScreenState extends State<SearchScreen> {
     final price = offer.discountPrice;
     return Material(
       key: ValueKey('search-offer-${offer.id}'),
-      color: Colors.white,
+      color: context.colors.surfaceContainerHigh,
       elevation: 3,
-      shadowColor: burgundy.withValues(alpha: 0.11),
+      shadowColor: context.colors.primary.withValues(alpha: 0.11),
       borderRadius: BorderRadius.circular(23),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -610,22 +619,28 @@ class _SearchScreenState extends State<SearchScreen> {
                   height: 105,
                   child: offer.imageUrl == null
                       ? Container(
-                      color: const Color(0xFFF3E8DD),
-                      child: const Icon(
-                        Icons.restaurant_rounded,
-                        size: 42,
-                        color: burgundy,
-                      ),
-                    )
+                          color: context.adaptiveColor(
+                            const Color(0xFFF3E8DD),
+                            context.colors.surfaceContainerHighest,
+                          ),
+                          child: Icon(
+                            Icons.restaurant_rounded,
+                            size: 42,
+                            color: context.colors.primary,
+                          ),
+                        )
                       : Image.network(
                           offer.imageUrl!,
                           fit: BoxFit.cover,
                           errorBuilder: (_, _, _) => Container(
-                            color: const Color(0xFFF3E8DD),
-                            child: const Icon(
+                            color: context.adaptiveColor(
+                              const Color(0xFFF3E8DD),
+                              context.colors.surfaceContainerHighest,
+                            ),
+                            child: Icon(
                               Icons.restaurant_rounded,
                               size: 42,
-                              color: burgundy,
+                              color: context.colors.primary,
                             ),
                           ),
                         ),
@@ -640,8 +655,8 @@ class _SearchScreenState extends State<SearchScreen> {
                       offer.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: ink,
+                      style: TextStyle(
+                        color: context.colors.onSurface,
                         fontSize: 16,
                         fontWeight: FontWeight.w900,
                       ),
@@ -649,12 +664,18 @@ class _SearchScreenState extends State<SearchScreen> {
                     const SizedBox(height: 7),
                     Text(
                       [
-                        if (offer.category != null) offer.category!,
+                        if (offer.isSurpriseBasket)
+                          'Panier surprise'
+                        else if (offer.category != null)
+                          offer.category!,
                         if (offer.availableQuantity != null)
                           '${offer.availableQuantity} disponible(s)',
                       ].join(' • '),
-                      style: const TextStyle(
-                        color: Color(0xFF746B66),
+                      style: TextStyle(
+                        color: context.adaptiveColor(
+                          const Color(0xFF746B66),
+                          context.colors.onSurfaceVariant,
+                        ),
                         fontSize: 12,
                       ),
                     ),
@@ -664,8 +685,11 @@ class _SearchScreenState extends State<SearchScreen> {
                         offer.shopName!,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Color(0xFF746B66),
+                        style: TextStyle(
+                          color: context.adaptiveColor(
+                            const Color(0xFF746B66),
+                            context.colors.onSurfaceVariant,
+                          ),
                           fontSize: 12,
                         ),
                       ),
@@ -674,8 +698,8 @@ class _SearchScreenState extends State<SearchScreen> {
                       price == null
                           ? 'Prix indisponible'
                           : '${price.toStringAsFixed(3)} DT',
-                      style: const TextStyle(
-                        color: burgundy,
+                      style: TextStyle(
+                        color: context.colors.primary,
                         fontSize: 14,
                         fontWeight: FontWeight.w900,
                       ),
@@ -688,9 +712,12 @@ class _SearchScreenState extends State<SearchScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const SizedBox(height: 40),
-                  const Icon(
+                  Icon(
                     Icons.chevron_right_rounded,
-                    color: Color(0xFF77675F),
+                    color: context.adaptiveColor(
+                      const Color(0xFF77675F),
+                      context.colors.onSurfaceVariant,
+                    ),
                     size: 25,
                   ),
                 ],
@@ -727,18 +754,15 @@ class _SearchScreenState extends State<SearchScreen> {
         padding: const EdgeInsets.symmetric(vertical: 45),
         child: Column(
           children: [
-            const Icon(
+            Icon(
               Icons.search_off_rounded,
               size: 65,
-              color: burgundy,
+              color: context.colors.primary,
             ),
             const SizedBox(height: 15),
             const Text(
               'Aucune offre alimentaire trouvée',
-              style: TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 17,
-              ),
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
             ),
             const SizedBox(height: 8),
             const Text(
@@ -757,9 +781,9 @@ class _SearchScreenState extends State<SearchScreen> {
                 });
                 _loadOffers(query: '');
               },
-              child: const Text(
+              child: Text(
                 'Réinitialiser',
-                style: TextStyle(color: burgundy),
+                style: TextStyle(color: context.colors.primary),
               ),
             ),
           ],
@@ -807,7 +831,7 @@ class _ShopIllustration extends StatelessWidget {
                   child: Row(
                     children: List.generate(
                       5,
-                          (index) => Expanded(
+                      (index) => Expanded(
                         child: Container(
                           decoration: BoxDecoration(
                             color: index.isEven

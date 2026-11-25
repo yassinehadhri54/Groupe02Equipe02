@@ -36,7 +36,7 @@ class MerchantOrderCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.titleMedium
                             ?.copyWith(
-                              color: AppTheme.ink,
+                              color: context.colors.onSurface,
                               fontWeight: FontWeight.w800,
                             ),
                       ),
@@ -48,7 +48,7 @@ class MerchantOrderCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.bodyMedium
                               ?.copyWith(
-                                color: AppTheme.ink.withValues(alpha: 0.68),
+                                color: context.colors.onSurfaceVariant,
                               ),
                         ),
                       ],
@@ -112,7 +112,7 @@ class _OrderMeta extends StatelessWidget {
         Text(
           label,
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: AppTheme.ink.withValues(alpha: 0.75),
+            color: context.colors.onSurfaceVariant,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -156,8 +156,8 @@ class _OrderStatusBadge extends StatelessWidget {
       ),
       MerchantOrderStatus.unknown => (
         'Statut inconnu',
-        AppTheme.ink,
-        AppTheme.cream,
+        context.colors.onSurface,
+        context.colors.surface,
       ),
     };
 

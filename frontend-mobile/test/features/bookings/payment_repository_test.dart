@@ -250,7 +250,7 @@ void main() {
 
         await tester.pumpWidget(
           MaterialApp(
-            theme: AppTheme.light,
+            theme: AppTheme.dark,
             home: BookingDetailScreen(
               booking: Booking.fromJson(_unpaidBooking),
               repository: reservationRepository,
@@ -301,6 +301,10 @@ void main() {
 
         expect(requested.last, 'GET /api/reservations/reservation-1/qr');
         expect(find.byKey(const ValueKey('booking-qr-image')), findsOneWidget);
+        final qrBackground = tester.widget<ColoredBox>(
+          find.byKey(const ValueKey('booking-qr-background')),
+        );
+        expect(qrBackground.color, Colors.white);
         expect(find.text('raw-qr-token-must-not-be-rendered'), findsNothing);
         expect(tester.takeException(), isNull);
       },

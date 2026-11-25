@@ -93,31 +93,50 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: const TextStyle(color: Color(0xFF77716E), fontSize: 14),
-      prefixIcon: Icon(icon, color: AppTheme.ink, size: 22),
+      hintStyle: TextStyle(
+        color: context.adaptiveColor(
+          const Color(0xFF77716E),
+          context.colors.onSurfaceVariant,
+        ),
+        fontSize: 14,
+      ),
+      prefixIcon: Icon(icon, color: context.colors.onSurface, size: 22),
       suffixIcon: suffixIcon,
       filled: true,
-      fillColor: const Color(0xFFFFFCF9),
+      fillColor: context.adaptiveColor(
+        const Color(0xFFFFFCF9),
+        context.colors.surfaceContainerLow,
+      ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 17),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(22),
-        borderSide: const BorderSide(color: Color(0xFFE4D9CF)),
+        borderSide: BorderSide(
+          color: context.adaptiveColor(
+            const Color(0xFFE4D9CF),
+            context.colors.outlineVariant,
+          ),
+        ),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(22),
-        borderSide: const BorderSide(color: Color(0xFFE4D9CF)),
+        borderSide: BorderSide(
+          color: context.adaptiveColor(
+            const Color(0xFFE4D9CF),
+            context.colors.outlineVariant,
+          ),
+        ),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(22),
-        borderSide: const BorderSide(color: AppTheme.burgundy, width: 1.5),
+        borderSide: BorderSide(color: context.colors.primary, width: 1.5),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(22),
-        borderSide: const BorderSide(color: Colors.red),
+        borderSide: BorderSide(color: context.colors.error),
       ),
       focusedErrorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(22),
-        borderSide: const BorderSide(color: Colors.red, width: 1.5),
+        borderSide: BorderSide(color: context.colors.error, width: 1.5),
       ),
     );
   }
@@ -140,21 +159,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
             SizedBox(height: compact ? 22 : 34),
 
-            const Text(
+            Text(
               'Inscription',
               style: TextStyle(
                 fontSize: 37,
                 fontWeight: FontWeight.w800,
                 letterSpacing: -1.2,
-                color: AppTheme.ink,
+                color: context.colors.onSurface,
               ),
             ),
 
             const SizedBox(height: 6),
 
-            const Text(
+            Text(
               'Crée ton compte CampusSave',
-              style: TextStyle(fontSize: 15, color: AppTheme.ink),
+              style: TextStyle(fontSize: 15, color: context.colors.onSurface),
             ),
 
             SizedBox(height: compact ? 18 : 28),
@@ -232,7 +251,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     _hidePassword
                         ? Icons.visibility_outlined
                         : Icons.visibility_off_outlined,
-                    color: AppTheme.ink,
+                    color: context.colors.onSurface,
                   ),
                   onPressed: () {
                     setState(() {
@@ -269,7 +288,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     _hideConfirmPassword
                         ? Icons.visibility_outlined
                         : Icons.visibility_off_outlined,
-                    color: AppTheme.ink,
+                    color: context.colors.onSurface,
                   ),
                   onPressed: () {
                     setState(() {
@@ -334,14 +353,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
             SizedBox(height: compact ? 18 : 26),
 
-            const Row(
+            Row(
               children: [
                 Expanded(child: Divider()),
                 Padding(
                   padding: EdgeInsets.symmetric(horizontal: 17),
                   child: Text(
                     'ou',
-                    style: TextStyle(color: AppTheme.ink, fontSize: 15),
+                    style: TextStyle(
+                      color: context.colors.onSurface,
+                      fontSize: 15,
+                    ),
                   ),
                 ),
                 Expanded(child: Divider()),
@@ -356,11 +378,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
               child: OutlinedButton(
                 onPressed: null,
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: AppTheme.ink,
-                  backgroundColor: const Color(0xFFFFFCF9),
-                  disabledForegroundColor: AppTheme.ink,
-                  disabledBackgroundColor: const Color(0xFFFFFCF9),
-                  side: const BorderSide(color: Color(0xFFD7CBC1)),
+                  foregroundColor: context.colors.onSurface,
+                  backgroundColor: context.adaptiveColor(
+                    const Color(0xFFFFFCF9),
+                    context.colors.surfaceContainerLow,
+                  ),
+                  disabledForegroundColor: context.colors.onSurface,
+                  disabledBackgroundColor: context.adaptiveColor(
+                    const Color(0xFFFFFCF9),
+                    context.colors.surfaceContainerLow,
+                  ),
+                  side: BorderSide(
+                    color: context.adaptiveColor(
+                      const Color(0xFFD7CBC1),
+                      context.colors.outlineVariant,
+                    ),
+                  ),
                   shape: const StadiumBorder(),
                 ),
                 child: Row(
@@ -399,18 +432,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
               crossAxisAlignment: WrapCrossAlignment.center,
               spacing: 4,
               children: [
-                const Text(
+                Text(
                   'Déjà un compte ?',
-                  style: TextStyle(fontSize: 14, color: AppTheme.ink),
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: context.colors.onSurface,
+                  ),
                 ),
                 TextButton(
                   key: const ValueKey('register-login'),
                   onPressed: _goToLogin,
-                  child: const Text(
+                  child: Text(
                     'Se connecter',
                     style: TextStyle(
                       fontSize: 16,
-                      color: AppTheme.burgundy,
+                      color: context.colors.primary,
                       fontWeight: FontWeight.w800,
                     ),
                   ),

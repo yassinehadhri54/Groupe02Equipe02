@@ -16,10 +16,7 @@ class BookingsScreen extends StatefulWidget {
 }
 
 class _BookingsScreenState extends State<BookingsScreen> {
-  static const Color burgundy = AppTheme.burgundy;
   static const Color gold = AppTheme.gold;
-  static const Color cream = AppTheme.cream;
-  static const Color ink = AppTheme.ink;
 
   late final ReservationRepository _repository =
       widget.repository ??
@@ -69,7 +66,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       key: const ValueKey('bookings-screen'),
-      backgroundColor: cream,
+      backgroundColor: context.colors.surface,
       body: SafeArea(
         top: false,
         bottom: false,
@@ -83,10 +80,12 @@ class _BookingsScreenState extends State<BookingsScreen> {
                   _buildFilters(),
                   const SizedBox(height: 24),
                   if (_isLoading)
-                    const Padding(
+                    Padding(
                       padding: EdgeInsets.symmetric(vertical: 80),
                       child: Center(
-                        child: CircularProgressIndicator(color: burgundy),
+                        child: CircularProgressIndicator(
+                          color: context.colors.primary,
+                        ),
                       ),
                     )
                   else if (_errorMessage != null)
@@ -247,11 +246,13 @@ class _BookingsScreenState extends State<BookingsScreen> {
                   vertical: 14,
                 ),
                 decoration: BoxDecoration(
-                  color: selected ? burgundy : Colors.white,
+                  color: selected
+                      ? AppTheme.burgundy
+                      : context.colors.surfaceContainerHigh,
                   borderRadius: BorderRadius.circular(30),
                   boxShadow: [
                     BoxShadow(
-                      color: burgundy.withValues(alpha: 0.08),
+                      color: context.colors.primary.withValues(alpha: 0.08),
                       blurRadius: 12,
                       offset: const Offset(0, 5),
                     ),
@@ -262,7 +263,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                     Icon(
                       filter.$2,
                       size: 20,
-                      color: selected ? Colors.white : ink,
+                      color: selected ? Colors.white : context.colors.onSurface,
                     ),
                     const SizedBox(width: 7),
                     Text(
@@ -270,7 +271,9 @@ class _BookingsScreenState extends State<BookingsScreen> {
                       style: TextStyle(
                         fontWeight: FontWeight.w700,
                         fontSize: 13,
-                        color: selected ? Colors.white : ink,
+                        color: selected
+                            ? Colors.white
+                            : context.colors.onSurface,
                       ),
                     ),
                   ],
@@ -288,7 +291,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
     final statusBackground = _statusBackground(booking.parsedStatus);
 
     return Material(
-      color: Colors.white,
+      color: context.colors.surfaceContainerHigh,
       borderRadius: BorderRadius.circular(22),
       elevation: 0,
       child: InkWell(
@@ -311,7 +314,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
             borderRadius: BorderRadius.circular(22),
             boxShadow: [
               BoxShadow(
-                color: burgundy.withValues(alpha: 0.07),
+                color: context.colors.primary.withValues(alpha: 0.07),
                 blurRadius: 16,
                 offset: const Offset(0, 7),
               ),
@@ -326,12 +329,12 @@ class _BookingsScreenState extends State<BookingsScreen> {
                     width: 94,
                     height: 105,
                     decoration: BoxDecoration(
-                      color: cream,
+                      color: context.colors.surface,
                       borderRadius: BorderRadius.circular(15),
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.restaurant_rounded,
-                      color: burgundy,
+                      color: context.colors.primary,
                       size: 36,
                     ),
                   ),
@@ -344,10 +347,10 @@ class _BookingsScreenState extends State<BookingsScreen> {
                           booking.name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w800,
-                            color: ink,
+                            color: context.colors.onSurface,
                           ),
                         ),
                         if (booking.restaurant != null) ...[
@@ -356,27 +359,33 @@ class _BookingsScreenState extends State<BookingsScreen> {
                             booking.restaurant!,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
-                              color: Color(0xFF766B66),
+                              color: context.adaptiveColor(
+                                const Color(0xFF766B66),
+                                context.colors.onSurfaceVariant,
+                              ),
                             ),
                           ),
                         ],
                         const SizedBox(height: 10),
                         Text(
                           '${booking.quantity} × ${_formatPrice(booking.unitPrice)}',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 13,
-                            color: Color(0xFF645954),
+                            color: context.adaptiveColor(
+                              const Color(0xFF645954),
+                              context.colors.onSurfaceVariant,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 5),
                         Text(
                           '${_formatPrice(booking.totalPrice)} au total',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w900,
-                            color: burgundy,
+                            color: context.colors.primary,
                           ),
                         ),
                         const SizedBox(height: 9),
@@ -393,33 +402,46 @@ class _BookingsScreenState extends State<BookingsScreen> {
                               _statusPill(
                                 'Paiement : $label',
                                 const Color(0xFF5F554F),
-                                cream,
+                                context.colors.surface,
                               ),
                           ],
                         ),
                       ],
                     ),
                   ),
-                  const Icon(Icons.chevron_right_rounded, color: ink, size: 24),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: context.colors.onSurface,
+                    size: 24,
+                  ),
                 ],
               ),
               const SizedBox(height: 13),
-              const Divider(height: 1, color: Color(0xFFF0E8E0)),
+              Divider(
+                height: 1,
+                color: context.adaptiveColor(
+                  const Color(0xFFF0E8E0),
+                  context.colors.outlineVariant,
+                ),
+              ),
               const SizedBox(height: 12),
               if (booking.createdAtLabel case final date?)
                 Row(
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.calendar_month_outlined,
                       size: 17,
-                      color: ink,
+                      color: context.colors.onSurface,
                     ),
                     const SizedBox(width: 5),
                     Text(
                       date,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 11,
-                        color: Color(0xFF645954),
+                        color: context.adaptiveColor(
+                          const Color(0xFF645954),
+                          context.colors.onSurfaceVariant,
+                        ),
                       ),
                     ),
                   ],
@@ -437,7 +459,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
     ReservationStatus.completed => const Color(0xFF14752A),
     ReservationStatus.rejected ||
     ReservationStatus.cancelled => const Color(0xFFC50000),
-    ReservationStatus.unknown => ink,
+    ReservationStatus.unknown => context.colors.onSurface,
   };
 
   Color _statusBackground(ReservationStatus status) => switch (status) {
@@ -446,7 +468,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
     ReservationStatus.completed => const Color(0xFFE5F5D8),
     ReservationStatus.rejected ||
     ReservationStatus.cancelled => const Color(0xFFFFDEDE),
-    ReservationStatus.unknown => cream,
+    ReservationStatus.unknown => context.colors.surface,
   };
 
   Widget _statusPill(String label, Color color, Color background) {
@@ -477,21 +499,21 @@ class _BookingsScreenState extends State<BookingsScreen> {
           Icon(
             Icons.receipt_long_outlined,
             size: 65,
-            color: burgundy.withValues(alpha: 0.4),
+            color: context.colors.primary.withValues(alpha: 0.4),
           ),
           const SizedBox(height: 15),
-          const Text(
+          Text(
             'Aucune réservation trouvée',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w800,
-              color: ink,
+              color: context.colors.onSurface,
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             'Tes réservations apparaîtront ici.',
-            style: TextStyle(color: Colors.grey),
+            style: TextStyle(color: context.colors.onSurfaceVariant),
           ),
           const SizedBox(height: 8),
           TextButton(
@@ -512,7 +534,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
           Text(
             _errorMessage ?? 'Impossible de charger les réservations.',
             textAlign: TextAlign.center,
-            style: const TextStyle(color: ink),
+            style: TextStyle(color: context.colors.onSurface),
           ),
           const SizedBox(height: 8),
           TextButton(

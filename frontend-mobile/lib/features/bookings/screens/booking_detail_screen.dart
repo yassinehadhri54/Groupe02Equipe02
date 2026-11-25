@@ -258,7 +258,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       key: const ValueKey('booking-detail-screen'),
-      backgroundColor: AppTheme.cream,
+      backgroundColor: context.colors.surface,
       appBar: AppBar(
         leading: IconButton(
           key: const ValueKey('booking-detail-back'),
@@ -292,7 +292,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                         _actionError!,
                         key: const ValueKey('booking-action-error'),
                         textAlign: TextAlign.center,
-                        style: const TextStyle(color: AppTheme.burgundy),
+                        style: TextStyle(color: context.colors.primary),
                       ),
                     ],
                     if (_booking.canCancel) ...[
@@ -335,7 +335,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
             Text(
               'Paiement',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: AppTheme.burgundy,
+                color: context.colors.primary,
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -401,7 +401,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                 _paymentError!,
                 key: const ValueKey('payment-error'),
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: AppTheme.burgundy),
+                style: TextStyle(color: context.colors.primary),
               ),
             ],
           ],
@@ -420,15 +420,17 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
             Text(
               _booking.name,
               key: const ValueKey('booking-detail-name'),
-              style: Theme.of(context).textTheme.titleLarge
-                  ?.copyWith(color: AppTheme.ink, fontWeight: FontWeight.w800),
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                color: context.colors.onSurface,
+                fontWeight: FontWeight.w800,
+              ),
             ),
             if (_booking.restaurant != null) ...[
               const SizedBox(height: 6),
               Text(
                 _booking.restaurant!,
                 style: Theme.of(context).textTheme.bodyMedium
-                    ?.copyWith(color: AppTheme.ink.withValues(alpha: 0.7)),
+                    ?.copyWith(color: context.colors.onSurfaceVariant),
               ),
             ],
             const SizedBox(height: 18),
@@ -489,7 +491,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
             Text(
               'QR de retrait',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: AppTheme.burgundy,
+                color: context.colors.primary,
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -533,12 +535,22 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
 
     try {
       final imageBytes = base64Decode(imageDataUrl.substring(separator + 1));
-      return Image.memory(
-        imageBytes,
-        key: const ValueKey('booking-qr-image'),
-        width: 220,
-        height: 220,
-        errorBuilder: (_, _, _) => const Text('Impossible d’afficher le QR.'),
+      return ColoredBox(
+        key: const ValueKey('booking-qr-background'),
+        color: Colors.white,
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Image.memory(
+            imageBytes,
+            key: const ValueKey('booking-qr-image'),
+            width: 220,
+            height: 220,
+            errorBuilder: (_, _, _) => const Text(
+              'Impossible d’afficher le QR.',
+              style: TextStyle(color: AppTheme.ink),
+            ),
+          ),
+        ),
       );
     } on FormatException {
       return const Text('Le QR reçu du serveur est invalide.');
@@ -564,7 +576,7 @@ class _InfoRow extends StatelessWidget {
           child: Text(
             label,
             style: Theme.of(context).textTheme.bodyMedium
-                ?.copyWith(color: AppTheme.ink.withValues(alpha: 0.65)),
+                ?.copyWith(color: context.colors.onSurfaceVariant),
           ),
         ),
         const SizedBox(width: 12),
@@ -573,8 +585,10 @@ class _InfoRow extends StatelessWidget {
             value,
             key: valueKey,
             textAlign: TextAlign.end,
-            style: Theme.of(context).textTheme.bodyMedium
-                ?.copyWith(color: AppTheme.ink, fontWeight: FontWeight.w700),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: context.colors.onSurface,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       ],

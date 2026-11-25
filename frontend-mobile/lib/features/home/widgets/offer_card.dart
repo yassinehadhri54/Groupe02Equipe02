@@ -83,7 +83,7 @@ class OfferCard extends StatelessWidget {
                   Text(
                     name,
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: AppTheme.ink,
+                      color: context.colors.onSurface,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -91,7 +91,7 @@ class OfferCard extends StatelessWidget {
                   Text(
                     shop,
                     style: Theme.of(context).textTheme.bodyMedium
-                        ?.copyWith(color: AppTheme.ink.withValues(alpha: 0.65)),
+                        ?.copyWith(color: context.colors.onSurfaceVariant),
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -100,7 +100,7 @@ class OfferCard extends StatelessWidget {
                         '${price.toStringAsFixed(3)} DT',
                         style: Theme.of(context).textTheme.titleMedium
                             ?.copyWith(
-                              color: AppTheme.burgundy,
+                              color: context.colors.primary,
                               fontWeight: FontWeight.w800,
                             ),
                       ),
@@ -108,7 +108,7 @@ class OfferCard extends StatelessWidget {
                       Text(
                         '${oldPrice.toStringAsFixed(3)} DT',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: AppTheme.ink.withValues(alpha: 0.55),
+                          color: context.colors.onSurfaceVariant,
                           decoration: TextDecoration.lineThrough,
                         ),
                       ),

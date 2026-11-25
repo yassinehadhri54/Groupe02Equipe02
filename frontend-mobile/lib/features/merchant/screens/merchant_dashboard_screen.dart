@@ -2,7 +2,9 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../core/network/auth_repository.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/theme_toggle_button.dart';
 import '../../auth/screens/login_screen.dart';
+import '../../impact/screens/impact_dashboard_screen.dart';
 import '../data/demo_merchant_repository.dart';
 import '../data/merchant_api_repository.dart';
 import '../models/merchant_dashboard_stats.dart';
@@ -50,7 +52,7 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
   Widget _buildPage(BuildContext context) {
     return Scaffold(
       key: const ValueKey('merchant-dashboard-screen'),
-      backgroundColor: AppTheme.cream,
+      backgroundColor: context.colors.surface,
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -203,6 +205,16 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
             if (shop.status == 'approved') ...[
               const SizedBox(height: 26),
               _buildQuickActions(context),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () => openImpact(
+                  context,
+                  _api.authRepository,
+                  ImpactScope.merchant,
+                ),
+                icon: const Icon(Icons.eco_outlined),
+                label: const Text('Tableau d’impact'),
+              ),
               const SizedBox(height: 26),
               _buildDashboard(context),
             ],
@@ -278,6 +290,7 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
                   ),
                   icon: const Icon(Icons.notifications_none_rounded),
                 ),
+              const ThemeToggleButton(color: Colors.white),
             ],
           ),
           const SizedBox(height: 19),
@@ -400,8 +413,10 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
       children: [
         Text(
           'Meilleures offres',
-          style: Theme.of(context).textTheme.titleLarge
-              ?.copyWith(color: AppTheme.ink, fontWeight: FontWeight.w900),
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            color: context.colors.onSurface,
+            fontWeight: FontWeight.w900,
+          ),
         ),
         const SizedBox(height: 12),
         if (offers.isEmpty) const Text('Aucune offre classée pour le moment.'),
@@ -467,8 +482,10 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
       children: [
         Text(
           'Vue d’ensemble',
-          style: Theme.of(context).textTheme.titleLarge
-              ?.copyWith(color: AppTheme.ink, fontWeight: FontWeight.w900),
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            color: context.colors.onSurface,
+            fontWeight: FontWeight.w900,
+          ),
         ),
         const SizedBox(height: 13),
         LayoutBuilder(
@@ -506,8 +523,10 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
       children: [
         Text(
           'Actions rapides',
-          style: Theme.of(context).textTheme.titleLarge
-              ?.copyWith(color: AppTheme.ink, fontWeight: FontWeight.w900),
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            color: context.colors.onSurface,
+            fontWeight: FontWeight.w900,
+          ),
         ),
         const SizedBox(height: 13),
         Wrap(
@@ -584,7 +603,7 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
               child: Text(
                 'Dernières réservations',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  color: AppTheme.ink,
+                  color: context.colors.onSurface,
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -592,7 +611,7 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
             Text(
               '${latestOrders.length} / $total',
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                color: AppTheme.ink.withValues(alpha: 0.62),
+                color: context.colors.onSurfaceVariant,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -646,7 +665,11 @@ class _StatisticCard extends StatelessWidget {
                 color: AppTheme.gold.withValues(alpha: 0.18),
                 borderRadius: BorderRadius.circular(15),
               ),
-              child: Icon(statistic.icon, color: AppTheme.burgundy, size: 23),
+              child: Icon(
+                statistic.icon,
+                color: context.colors.primary,
+                size: 23,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -656,7 +679,7 @@ class _StatisticCard extends StatelessWidget {
                   Text(
                     statistic.label,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppTheme.ink.withValues(alpha: 0.65),
+                      color: context.colors.onSurfaceVariant,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -667,7 +690,7 @@ class _StatisticCard extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: AppTheme.ink,
+                      color: context.colors.onSurface,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
@@ -695,21 +718,23 @@ class _EmptyOrdersCard extends StatelessWidget {
             Icon(
               Icons.receipt_long_outlined,
               size: 42,
-              color: AppTheme.burgundy.withValues(alpha: 0.55),
+              color: context.colors.primary.withValues(alpha: 0.55),
             ),
             const SizedBox(height: 10),
             Text(
               'Aucune réservation pour le moment',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleMedium
-                  ?.copyWith(color: AppTheme.ink, fontWeight: FontWeight.w800),
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: context.colors.onSurface,
+                fontWeight: FontWeight.w800,
+              ),
             ),
             const SizedBox(height: 5),
             Text(
               'Les réservations reçues apparaîtront ici.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall
-                  ?.copyWith(color: AppTheme.ink.withValues(alpha: 0.65)),
+                  ?.copyWith(color: context.colors.onSurfaceVariant),
             ),
           ],
         ),

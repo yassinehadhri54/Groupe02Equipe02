@@ -139,8 +139,10 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
         const SizedBox(height: 20),
         Text(
           'Détail du montant estimé',
-          style: Theme.of(context).textTheme.titleLarge
-              ?.copyWith(color: AppTheme.burgundy, fontWeight: FontWeight.w800),
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            color: context.colors.primary,
+            fontWeight: FontWeight.w800,
+          ),
         ),
         const SizedBox(height: 12),
         Card(
@@ -177,8 +179,8 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
             _errorMessage!,
             key: const ValueKey('reservation-create-error'),
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: AppTheme.burgundy,
+            style: TextStyle(
+              color: context.colors.primary,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -191,18 +193,23 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Icon(
+        Icon(
           Icons.check_circle_rounded,
-          key: ValueKey('reservation-created-icon'),
-          color: Color(0xFF14752A),
+          key: const ValueKey('reservation-created-icon'),
+          color: context.adaptiveColor(
+            const Color(0xFF14752A),
+            const Color(0xFF9AD98E),
+          ),
           size: 64,
         ),
         const SizedBox(height: 12),
         Text(
           'Réservation enregistrée',
           textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.titleLarge
-              ?.copyWith(color: AppTheme.burgundy, fontWeight: FontWeight.w800),
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            color: context.colors.primary,
+            fontWeight: FontWeight.w800,
+          ),
         ),
         const SizedBox(height: 20),
         Card(
@@ -260,12 +267,12 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
           AspectRatio(
             aspectRatio: 16 / 9,
             child: offer.imageUrl == null
-                ? const ColoredBox(
-                    color: AppTheme.cream,
+                ? ColoredBox(
+                    color: context.colors.surface,
                     child: Center(
                       child: Icon(
                         Icons.restaurant_rounded,
-                        color: AppTheme.burgundy,
+                        color: context.colors.primary,
                         size: 52,
                       ),
                     ),
@@ -291,7 +298,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
                 Text(
                   offer.name,
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: AppTheme.ink,
+                    color: context.colors.onSurface,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
@@ -300,7 +307,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
                   Text(
                     offer.shopName!,
                     style: Theme.of(context).textTheme.bodyMedium
-                        ?.copyWith(color: AppTheme.ink.withValues(alpha: 0.7)),
+                        ?.copyWith(color: context.colors.onSurfaceVariant),
                   ),
                 ],
               ],
@@ -341,8 +348,8 @@ class _SummaryRow extends StatelessWidget {
             label,
             style: style?.copyWith(
               color: emphasized
-                  ? AppTheme.ink
-                  : AppTheme.ink.withValues(alpha: 0.7),
+                  ? context.colors.onSurface
+                  : context.colors.onSurfaceVariant,
               fontWeight: emphasized ? FontWeight.w800 : FontWeight.w500,
             ),
           ),
@@ -353,7 +360,9 @@ class _SummaryRow extends StatelessWidget {
           key: valueKey,
           textAlign: TextAlign.end,
           style: style?.copyWith(
-            color: emphasized ? AppTheme.burgundy : AppTheme.ink,
+            color: emphasized
+                ? context.colors.primary
+                : context.colors.onSurface,
             fontWeight: FontWeight.w800,
           ),
         ),

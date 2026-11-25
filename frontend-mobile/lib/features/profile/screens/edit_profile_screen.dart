@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../../core/network/auth_repository.dart';
 import '../data/profile_repository.dart';
 import '../models/profile_data.dart';
+import '../../../core/theme/app_theme.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({
@@ -19,10 +20,7 @@ class EditProfileScreen extends StatefulWidget {
 }
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
-  static const burgundy = Color(0xFF8F0401);
   static const gold = Color(0xFFDCA321);
-  static const cream = Color(0xFFF3EEE5);
-  static const ink = Color(0xFF292323);
 
   final _formKey = GlobalKey<FormState>();
 
@@ -105,9 +103,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   Widget _avatarImage() {
     final photoUrl = widget.initialData.photoUrl;
     if (photoUrl == null) {
-      return const CircleAvatar(
-        backgroundColor: Color(0xFFFFE5CB),
-        child: Icon(Icons.person_rounded, size: 65, color: burgundy),
+      return CircleAvatar(
+        backgroundColor: context.adaptiveColor(
+          const Color(0xFFFFE5CB),
+          context.colors.surfaceContainerHighest,
+        ),
+        child: Icon(
+          Icons.person_rounded,
+          size: 65,
+          color: context.colors.primary,
+        ),
       );
     }
 
@@ -117,9 +122,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         width: 102,
         height: 102,
         fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) => const CircleAvatar(
-          backgroundColor: Color(0xFFFFE5CB),
-          child: Icon(Icons.person_rounded, size: 65, color: burgundy),
+        errorBuilder: (context, error, stackTrace) => CircleAvatar(
+          backgroundColor: context.adaptiveColor(
+            const Color(0xFFFFE5CB),
+            context.colors.surfaceContainerHighest,
+          ),
+          child: Icon(
+            Icons.person_rounded,
+            size: 65,
+            color: context.colors.primary,
+          ),
         ),
       ),
     );
@@ -131,30 +143,45 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }) {
     return InputDecoration(
       labelText: label,
-      labelStyle: const TextStyle(color: Color(0xFF77706B)),
-      prefixIcon: Icon(icon, color: burgundy),
+      labelStyle: TextStyle(
+        color: context.adaptiveColor(
+          const Color(0xFF77706B),
+          context.colors.onSurfaceVariant,
+        ),
+      ),
+      prefixIcon: Icon(icon, color: context.colors.primary),
       filled: true,
-      fillColor: Colors.white,
+      fillColor: context.colors.surfaceContainerHigh,
       contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 19),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(17),
-        borderSide: const BorderSide(color: Color(0xFFE7DDD6)),
+        borderSide: BorderSide(
+          color: context.adaptiveColor(
+            const Color(0xFFE7DDD6),
+            context.colors.outlineVariant,
+          ),
+        ),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(17),
-        borderSide: const BorderSide(color: Color(0xFFE7DDD6)),
+        borderSide: BorderSide(
+          color: context.adaptiveColor(
+            const Color(0xFFE7DDD6),
+            context.colors.outlineVariant,
+          ),
+        ),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(17),
-        borderSide: const BorderSide(color: burgundy, width: 1.7),
+        borderSide: BorderSide(color: context.colors.primary, width: 1.7),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(17),
-        borderSide: const BorderSide(color: Colors.red),
+        borderSide: BorderSide(color: context.colors.error),
       ),
       focusedErrorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(17),
-        borderSide: const BorderSide(color: Colors.red, width: 1.7),
+        borderSide: BorderSide(color: context.colors.error, width: 1.7),
       ),
     );
   }
@@ -169,8 +196,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         constraints: BoxConstraints(
           maxHeight: MediaQuery.sizeOf(context).height * 0.92,
         ),
-        decoration: const BoxDecoration(
-          color: cream,
+        decoration: BoxDecoration(
+          color: context.colors.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
         ),
         child: Column(
@@ -181,7 +208,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               height: 5,
               margin: const EdgeInsets.only(top: 12, bottom: 8),
               decoration: BoxDecoration(
-                color: const Color(0xFFCFBDB5),
+                color: context.adaptiveColor(
+                  const Color(0xFFCFBDB5),
+                  context.colors.outlineVariant,
+                ),
                 borderRadius: BorderRadius.circular(10),
               ),
             ),
@@ -200,12 +230,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text(
+                                Text(
                                   'Modifier mon profil',
                                   style: TextStyle(
                                     fontSize: 25,
                                     fontWeight: FontWeight.w900,
-                                    color: ink,
+                                    color: context.colors.onSurface,
                                   ),
                                 ),
                                 const SizedBox(height: 5),
@@ -213,7 +243,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                   'Personnalise tes informations',
                                   style: TextStyle(
                                     fontSize: 13,
-                                    color: ink.withValues(alpha: 0.6),
+                                    color: context.colors.onSurfaceVariant,
                                   ),
                                 ),
                               ],
@@ -223,8 +253,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             onPressed: () => Navigator.pop(context),
                             icon: const Icon(Icons.close_rounded),
                             style: IconButton.styleFrom(
-                              backgroundColor: Colors.white,
-                              foregroundColor: burgundy,
+                              backgroundColor:
+                                  context.colors.surfaceContainerHigh,
+                              foregroundColor: context.colors.primary,
                             ),
                           ),
                         ],
@@ -254,10 +285,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                   child: Container(
                                     padding: const EdgeInsets.all(10),
                                     decoration: BoxDecoration(
-                                      color: burgundy,
+                                      color: AppTheme.burgundy,
                                       shape: BoxShape.circle,
                                       border: Border.all(
-                                        color: cream,
+                                        color: context.colors.surface,
                                         width: 3,
                                       ),
                                     ),
@@ -281,10 +312,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                   ),
                                 );
                               },
-                              child: const Text(
+                              child: Text(
                                 'Changer la photo',
                                 style: TextStyle(
-                                  color: burgundy,
+                                  color: context.colors.primary,
                                   fontWeight: FontWeight.w800,
                                 ),
                               ),
@@ -295,12 +326,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
                       const SizedBox(height: 22),
 
-                      const Text(
+                      Text(
                         'Informations personnelles',
                         style: TextStyle(
                           fontSize: 17,
                           fontWeight: FontWeight.w800,
-                          color: ink,
+                          color: context.colors.onSurface,
                         ),
                       ),
 
@@ -364,8 +395,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         Text(
                           _errorMessage!,
                           key: const ValueKey('edit-profile-error'),
-                          style: const TextStyle(
-                            color: Colors.red,
+                          style: TextStyle(
+                            color: context.colors.error,
                             fontSize: 13,
                           ),
                         ),
@@ -408,9 +439,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             ),
                           ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: burgundy,
+                            backgroundColor: AppTheme.burgundy,
                             elevation: 5,
-                            shadowColor: burgundy.withValues(alpha: 0.25),
+                            shadowColor: AppTheme.burgundy.withValues(
+                              alpha: 0.25,
+                            ),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(18),
                             ),
@@ -424,10 +457,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         width: double.infinity,
                         child: TextButton(
                           onPressed: () => Navigator.pop(context),
-                          child: const Text(
+                          child: Text(
                             'Annuler',
                             style: TextStyle(
-                              color: Color(0xFF71645E),
+                              color: context.adaptiveColor(
+                                const Color(0xFF71645E),
+                                context.colors.onSurfaceVariant,
+                              ),
                               fontWeight: FontWeight.w600,
                             ),
                           ),
