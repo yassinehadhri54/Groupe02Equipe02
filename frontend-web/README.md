@@ -1,16 +1,26 @@
-# React + Vite
+# CampusSave Web
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Interface React pour les étudiants, les commerçants et les administrateurs. Les données et les autorisations proviennent de l’API CampusSave.
 
-Currently, two official plugins are available:
+## Démarrage local
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Avec Node.js 22 compatible Vite 8, lancer depuis ce dossier :
 
-## React Compiler
+```powershell
+npm ci
+npm run dev -- --port 5173 --strictPort
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Ouvrir http://localhost:5173. Par défaut, l’API est http://localhost:5000. Pour une autre URL, définir `VITE_API_URL` dans `.env.local`, puis redémarrer Vite. Le backend doit autoriser l’origine du frontend dans sa configuration CORS. Les variables `VITE_*` sont publiques une fois compilées.
 
-## Expanding the ESLint configuration
+Le paiement web nécessite que `GET /api/payments/config` retourne `mode: "mock"`. Le scanner de retrait requiert un contexte sécurisé et une caméra autorisée. La saisie manuelle du code est disponible dans le même écran. Campus Radar permet de rechercher au centre de la carte ou par latitude et longitude.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Vérifications
+
+```powershell
+npm run lint
+npm test
+npm run build
+```
+
+Les tests Vitest simulent l’API. Ils peuvent être exécutés sans compte CampusSave ni accès à Firebase.

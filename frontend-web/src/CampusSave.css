@@ -1,0 +1,90 @@
+/* CampusSave surfaces shared by the catalog, dialogs and role pages. */
+:root {
+  --cs-surface: #fff;
+  --cs-field: #fff;
+  --cs-border: #a29990;
+  --cs-muted: #675e58;
+  --cs-accent: #8f0401;
+  --cs-error: #8f0401;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --white: #171717;
+  --cream: #222;
+  --text: #f5f5f5;
+  --muted: #bdbdbd;
+  --border: #424242;
+  --cs-surface: #292929;
+  --cs-field: #222;
+  --cs-border: #828282;
+  --cs-muted: #c5c5c5;
+  --cs-accent: #efba50;
+  --cs-error: #ffb4ab;
+  color-scheme: dark;
+}
+.cs-navbar { flex-wrap: wrap; gap: .8rem 1.4rem; padding-top: 1rem; padding-bottom: 1rem; }
+.cs-navbar nav { display: flex; flex-wrap: wrap; gap: .6rem 1.15rem; }
+.cs-navbar .nav-buttons { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.cs-navbar a[aria-current] { color: var(--cs-accent); text-decoration: underline; text-underline-offset: .3em; }
+[data-theme="dark"] .logo { color: #f5f5f5; }
+[data-theme="dark"] .hero h1 { color: var(--text); }
+[data-theme="dark"] .hero h1 span { color: var(--gold); }
+[data-theme="dark"] .hero { background: linear-gradient(135deg, #29201e, #222); }
+[data-theme="dark"] .hero-content > p, [data-theme="dark"] .section-heading > p { color: var(--text); }
+[data-theme="dark"] .section-heading h2 { color: var(--text); }
+[data-theme="dark"] .login-btn, [data-theme="dark"] .secondary-btn { color: var(--gold); border-color: var(--gold); }
+.cs-theme { font-size: 1.3rem; line-height: 1; width: 2.7rem; height: 2.7rem; border-radius: 50%; border: 1px solid var(--cs-border); color: var(--cs-accent); background: var(--cs-surface); }
+.cs-theme span { display: block; animation: cs-icon .22s ease-out; }
+@keyframes cs-icon { from { opacity: 0; transform: rotate(-28deg) scale(.6); } }
+.cs-shell { width: min(1200px, 100%); min-height: 50vh; padding: clamp(1rem, 4vw, 3rem) clamp(1rem, 4vw, 2rem); margin: 0 auto; }
+.cs-shell section > h2 { margin-bottom: 1.25rem; overflow-wrap: anywhere; }
+.cs-shell > section > section, .cs-shell .cs-card + section { margin-top: 1.5rem; }
+.cs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 1rem; margin: 1.15rem 0; }
+.cs-card { padding: 1.15rem; background: var(--cs-surface); color: var(--text); border: 1px solid var(--border); border-radius: 1rem; box-shadow: 0 4px 16px #0001; overflow-wrap: anywhere; }
+.cs-card > * + *, .cs-dialog > * + * { margin-top: .6rem; }
+.cs-offer-image { width: 100%; aspect-ratio: 2; object-fit: cover; border-radius: .6rem; }
+.cs-badge { display: inline-block; border-radius: 1rem; padding: .2rem .65rem; background: #f7e7bd; color: #631d00; font-weight: 700; }
+.cs-muted, .cs-card del { color: var(--cs-muted); }
+.cs-error { color: var(--cs-error); font-weight: 700; margin-block: .7rem; }
+.cs-loading { min-height: 5rem; padding: 1rem; border-radius: .7rem; background: var(--cream); color: var(--text); }
+.cs-notice { padding: .7rem max(1rem, 8vw); background: var(--cream); }
+.cs-filters, .cs-actions { display: flex; gap: .8rem; flex-wrap: wrap; align-items: end; margin-block: .9rem; }
+.cs-filters > label { flex: 1 1 9rem; min-width: 0; }
+.cs-filter-single { max-width: 18rem; }
+.cs-shell label, .cs-dialog label, .cs-filters label { display: grid; gap: .35rem; color: var(--text); font-weight: 700; }
+.cs-dialog form > label, .cs-card form > label { margin-block: .65rem; }
+.cs-shell :is(input,select,textarea), .cs-dialog :is(input,select,textarea), .cs-filters :is(input,select) {
+  width: 100%; min-height: 2.75rem; padding: .55rem .65rem; color: var(--text); background: var(--cs-field);
+  border: 1px solid var(--cs-border); border-radius: .5rem; font: inherit; font-weight: 400;
+}
+.cs-shell textarea, .cs-dialog textarea { min-height: 5rem; resize: vertical; }
+:is(.cs-shell,.cs-dialog,.offers) button { min-height: 2.7rem; padding: .55rem .85rem; border-radius: .6rem; border: 1px solid var(--cs-border); background: var(--cs-surface); color: var(--text); font: inherit; font-weight: 700; }
+:is(.cs-shell,.cs-dialog,.offers) button.cs-primary { background: #8f0401; color: #fff; border-color: #8f0401; }
+button:disabled { cursor: not-allowed; opacity: .58; }
+.app :focus-visible { outline: 3px solid var(--cs-accent); outline-offset: 3px; }
+.cs-dialog { position: fixed; inset: 0; margin: auto; width: min(100% - 2rem, 620px); max-height: 90dvh; overflow: auto; border: 1px solid var(--cs-border); border-radius: 1rem; padding: clamp(1rem, 4vw, 1.6rem); background: var(--cs-surface); color: var(--text); }
+.cs-dialog header { display: flex; gap: .75rem; align-items: center; justify-content: space-between; }
+.cs-dialog header button { min-width: 2.7rem; padding: .2rem; font-size: 1.4rem; }
+.cs-dialog::backdrop { background: #0009; }
+.cs-qr { background: #fff; padding: .75rem; width: min(100%, 300px); height: auto; image-rendering: pixelated; margin: 1rem auto; }
+.cs-scanner { display: block; width: min(100%, 500px); background: #171717; border-radius: .6rem; }
+.cs-metric strong { color: var(--cs-accent); font-size: 1.45rem; }
+.cs-chart { display: grid; gap: .65rem; list-style: none; margin: .9rem 0; }
+.cs-chart li { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem; }
+.cs-chart-track { width: min(100%, 10rem); height: .65rem; border-radius: 1rem; background: var(--cream); overflow: hidden; }
+.cs-chart-track > span { display: block; height: 100%; background: var(--cs-accent); }
+.cs-map { height: clamp(300px, 58vh, 520px); z-index: 0; border: 1px solid var(--cs-border); border-radius: .7rem; margin-block: 1rem; }
+.cs-shell .cs-map-center { position: absolute; z-index: 500; top: .5rem; right: .5rem; max-width: calc(100% - 4.5rem); }
+.cs-map .leaflet-popup-content { color: #292323; }
+.cs-skip { position: fixed; z-index: 100; left: .75rem; top: .75rem; transform: translateY(-200%); padding: .8rem; background: var(--cs-surface); color: var(--text); }
+.cs-skip:focus { transform: none; }
+@media (max-width: 760px) {
+  .cs-navbar { padding-inline: 1rem; }
+  .cs-navbar nav { order: 3; flex-basis: 100%; padding-bottom: .2rem; }
+  .cs-navbar .user-welcome { display: none; }
+  .cs-chart-track { width: 6rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cs-theme span { animation: none; }
+  :root { scroll-behavior: auto; }
+}
