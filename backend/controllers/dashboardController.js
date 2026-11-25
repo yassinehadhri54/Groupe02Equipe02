@@ -21,7 +21,7 @@ const sendDashboard = (loader, label) => async (req, res) => {
 
 // GET /api/dashboard/student
 const getStudentDashboard = sendDashboard(
-    (req) => dashboardService.getStudentDashboard(req.user.uid),
+    (req) => dashboardService.getStudentDashboard(req.user.uid, req.user.ecoPoints),
     "Student"
 );
 

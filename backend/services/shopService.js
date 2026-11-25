@@ -1,12 +1,19 @@
 
 const { db } = require("../config/firebase");
 const { FieldValue } = require("firebase-admin/firestore");
+const { measureFirestore } = require("../utils/requestTiming");
+const { validateShopFields } = require("../utils/validation");
+const { distanceMeters } = require("../utils/geo");
+const { isOfferBookable, isSurpriseBasket } = require("../utils/offerFields");
 
 const shopsCollection = db.collection("shops");
 const usersCollection = db.collection("users");
+const offersCollection = db.collection("offers");
 
 // Create a new shop
-const createShop = async (uid, shopData) => {
+const createShop = async (uid, rawShopData) => {
+    const shopData = validateShopFields(rawShopData || {});
+
     const userRef = usersCollection.doc(uid);
     const userDoc = await userRef.get();
 
@@ -24,17 +31,11 @@ const createShop = async (uid, shopData) => {
         throw new Error("Your merchant account was rejected.");
     }
 
-    // Check if this merchant already has a shop
-    const existingShop = await shopsCollection
-        .where("ownerId", "==", uid)
-        .limit(1)
-        .get();
-
-    if (!existingShop.empty) {
-        throw new Error("You have already registered a shop.");
-    }
-
-    const shopRef = shopsCollection.doc();
+    // One shop per merchant. The new shop's document ID is the merchant's
+    // uid, so two simultaneous registrations cannot both succeed: the
+    // second create() fails because the document already exists.
+    const shopRef = shopsCollection.doc(uid);
+    const existingQuery = shopsCollection.where("ownerId", "==", uid).limit(1);
 
     const newShop = {
         shopId: shopRef.id,
@@ -48,12 +49,38 @@ const createShop = async (uid, shopData) => {
         email: shopData.email || userData.email,
         description: shopData.description || "",
 
+        // Bonus Campus Radar: position of the shop (optional).
+        ...(shopData.latitude !== undefined
+            ? { latitude: shopData.latitude, longitude: shopData.longitude }
+            : {}),
+
         status: "pending",
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp()
     };
 
-    await shopRef.set(newShop);
+    try {
+        await db.runTransaction(async (transaction) => {
+            // Shops created before this change have a random document ID.
+            const [existingShops, existingDoc] = await Promise.all([
+                transaction.get(existingQuery),
+                transaction.get(shopRef)
+            ]);
+
+            if (!existingShops.empty || existingDoc.exists) {
+                throw new Error("You have already registered a shop.");
+            }
+
+            transaction.create(shopRef, newShop);
+        });
+    } catch (error) {
+        // ALREADY_EXISTS (gRPC code 6): a concurrent registration won.
+        if (error.code === 6) {
+            throw new Error("You have already registered a shop.");
+        }
+
+        throw error;
+    }
 
     return {
         ...newShop,
@@ -92,21 +119,21 @@ const updateMyShop = async (uid, updateData) => {
 
     const shopDoc = snapshot.docs[0];
 
-    const allowedFields = [
-        "name",
-        "address",
-        "phone",
-        "email",
-        "description"
-    ];
-
-    const cleanData = {};
+    // Only these fields can be changed, each one validated like at registration.
+    const allowedFields = ["name", "address", "phone", "email", "description", "latitude", "longitude"];
+    const provided = {};
 
     allowedFields.forEach((field) => {
         if (updateData[field] !== undefined) {
-            cleanData[field] = updateData[field];
+            provided[field] = updateData[field];
         }
     });
+
+    if (provided.email === "" || provided.email === null) {
+        throw new Error("email must be a valid email address.");
+    }
+
+    const cleanData = validateShopFields(provided, { partial: true });
 
     if (Object.keys(cleanData).length === 0) {
         throw new Error("No valid fields provided for update.");
@@ -138,6 +165,60 @@ const getAllShops = async (status) => {
         id: doc.id,
         ...doc.data()
     }));
+};
+
+// Bonus Campus Radar: approved shops within "radiusKm" of a position, nearest
+// first, with their distance and the number of offers that can be reserved now.
+// Public data only (no owner name or e-mail). Shops without a position are
+// not on the radar. withOffers = true keeps only shops with an offer to take.
+const getNearbyShops = async ({ latitude, longitude, radiusKm, limit, withOffers = false }) => {
+    const origin = { latitude, longitude };
+    const shopsSnapshot = await measureFirestore(() => shopsCollection.where("status", "==", "approved").get());
+    const radiusMeters = radiusKm * 1000;
+    const candidates = shopsSnapshot.docs
+        .map((doc) => ({ ...doc.data(), shopId: doc.id }))
+        .filter((shop) =>
+            Number.isFinite(shop.latitude) && Math.abs(shop.latitude) <= 90 &&
+            Number.isFinite(shop.longitude) && Math.abs(shop.longitude) <= 180
+        )
+        .map((shop) => ({ shop, meters: distanceMeters(origin, shop) }))
+        .filter(({ meters }) => meters <= radiusMeters)
+        .sort((a, b) => a.meters - b.meters);
+
+    const nearby = withOffers ? candidates : candidates.slice(0, limit);
+    if (nearby.length === 0) return [];
+
+    const offersByShop = new Map();
+    const queryBatchSize = 30;
+    for (let offset = 0; offset < nearby.length; offset += queryBatchSize) {
+        const ids = nearby.slice(offset, offset + queryBatchSize).map(({ shop }) => shop.shopId);
+        const snapshot = await measureFirestore(() => offersCollection.where("shopId", "in", ids).get());
+        for (const doc of snapshot.docs) {
+            const offer = doc.data();
+            if (!isOfferBookable(offer)) continue;
+            const entry = offersByShop.get(offer.shopId) || { count: 0, baskets: 0 };
+            entry.count++;
+            if (isSurpriseBasket(offer)) entry.baskets++;
+            offersByShop.set(offer.shopId, entry);
+        }
+    }
+
+    return nearby.map(({ shop, meters }) => {
+        const offers = offersByShop.get(shop.shopId) || { count: 0, baskets: 0 };
+        return {
+            shopId: shop.shopId,
+            name: shop.name || "",
+            address: shop.address || "",
+            phone: shop.phone || "",
+            description: shop.description || "",
+            latitude: shop.latitude,
+            longitude: shop.longitude,
+            distanceMeters: Math.round(meters),
+            distanceKm: Number((meters / 1000).toFixed(2)),
+            offersCount: offers.count,
+            surpriseBasketsCount: offers.baskets
+        };
+    }).filter((shop) => !withOffers || shop.offersCount > 0).slice(0, limit);
 };
 
 // Change a shop's status and its owner's status together (Admin).
@@ -207,6 +288,7 @@ module.exports = {
     getMyShop,
     updateMyShop,
     getAllShops,
+    getNearbyShops,
     approveShop,
     rejectShop
 };

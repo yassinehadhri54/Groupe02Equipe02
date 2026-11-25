@@ -17,6 +17,8 @@ const isNonEmptyText = (value, maxLength = 100) =>
     value.trim().length > 0 &&
     value.trim().length <= maxLength;
 
+const { parseCoordinates } = require("./geo");
+
 const isDocumentId = (value) =>
     typeof value === "string" && value.length > 0 &&
     Buffer.byteLength(value, "utf8") <= 1500 &&
@@ -70,10 +72,103 @@ const validatePickupWindow = (pickupStart, pickupEnd, now = Date.now()) => {
     }
 };
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_PATTERN = /^\+?[0-9]{8,15}$/;
+
+// Optional long text (descriptions): a string of at most maxLength characters.
+const isOptionalText = (value, maxLength = 1000) =>
+    value === undefined ||
+    value === null ||
+    (typeof value === "string" && value.trim().length <= maxLength);
+
+// Shop form (registration and update). Returns the cleaned fields and throws
+// a 400-style Error on invalid input. partial = true for an update, where
+// only the provided fields are checked.
+const validateShopFields = (data, { partial = false } = {}) => {
+    const clean = {};
+
+    const requireText = (field, min, max) => {
+        const value = data[field];
+
+        if (value === undefined && partial) return;
+
+        if (typeof value !== "string" || value.trim().length < min || value.trim().length > max) {
+            throw new Error(`${field} must be a text of ${min} to ${max} characters.`);
+        }
+
+        clean[field] = value.trim();
+    };
+
+    requireText("name", 2, 100);
+    requireText("address", 2, 200);
+
+    if (data.phone !== undefined || !partial) {
+        const phone = typeof data.phone === "string" || typeof data.phone === "number"
+            ? String(data.phone).replace(/\s+/g, "")
+            : "";
+
+        if (!PHONE_PATTERN.test(phone)) {
+            throw new Error("phone must contain 8 to 15 digits (optional leading +).");
+        }
+
+        clean.phone = phone;
+    }
+
+    if (data.email !== undefined && data.email !== null && data.email !== "") {
+        if (typeof data.email !== "string" || !EMAIL_PATTERN.test(data.email.trim())) {
+            throw new Error("email must be a valid email address.");
+        }
+
+        clean.email = data.email.trim().toLowerCase();
+    }
+
+    if (data.description !== undefined) {
+        if (!isOptionalText(data.description)) {
+            throw new Error("description must be a text of at most 1000 characters.");
+        }
+
+        clean.description = (data.description || "").trim();
+    }
+
+    // Bonus Campus Radar: optional position of the shop (both values or none).
+    if (data.latitude !== undefined || data.longitude !== undefined) {
+        Object.assign(clean, parseCoordinates(data.latitude, data.longitude));
+    }
+
+    return clean;
+};
+
+// Surprise basket: the list of what the basket may contain.
+// Optional; at most 10 entries of 1 to 60 characters. Returns the cleaned list.
+const MAX_BASKET_ITEMS = 10;
+
+const validateBasketItems = (items) => {
+    if (items === undefined || items === null) {
+        return [];
+    }
+
+    if (!Array.isArray(items) || items.length > MAX_BASKET_ITEMS) {
+        throw new Error(`basketItems must be a list of at most ${MAX_BASKET_ITEMS} texts.`);
+    }
+
+    return items.map((item) => {
+        if (typeof item !== "string" || item.trim().length === 0 || item.trim().length > 60) {
+            throw new Error("Each basket item must be a text of 1 to 60 characters.");
+        }
+
+        return item.trim();
+    });
+};
+
 module.exports = {
+    EMAIL_PATTERN,
+    MAX_BASKET_ITEMS,
+    validateBasketItems,
     isHttpUrl,
     isNonEmptyText,
     isDocumentId,
+    isOptionalText,
     parsePickupTime,
-    validatePickupWindow
+    validatePickupWindow,
+    validateShopFields
 };

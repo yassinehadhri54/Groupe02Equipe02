@@ -1,19 +1,57 @@
 
 const { db } = require("../config/firebase");
 const { FieldValue } = require("firebase-admin/firestore");
+const { measureFirestore } = require("../utils/requestTiming");
 const {
     LISTED_OFFER_STATUSES,
+    OFFER_TYPES,
+    STANDARD_OFFER,
+    SURPRISE_BASKET,
     getOfferOwnerId,
     isOfferAdminDisabled,
     isOfferBookable,
+    isSurpriseBasket,
     normalizeOffer
 } = require("../utils/offerFields");
 const {
     isDocumentId,
     isHttpUrl,
     isNonEmptyText,
+    isOptionalText,
+    validateBasketItems,
     validatePickupWindow
 } = require("../utils/validation");
+
+// A deleted offer is kept (status "deleted") so that its reservations can
+// still be cancelled, rejected or shown in the history.
+const DELETED_STATUS = "deleted";
+
+// Surprise basket defaults and rule: the basket is sold at most at half of
+// its estimated value (originalPrice), so the student always gets a real deal.
+const BASKET_DEFAULT_NAME = "Panier surprise";
+const BASKET_DEFAULT_CATEGORY = "Panier surprise";
+const BASKET_MAX_PRICE_RATIO = 0.5;
+
+const checkBasketPrice = (originalPrice, discountPrice) => {
+    if (discountPrice > originalPrice * BASKET_MAX_PRICE_RATIO) {
+        throw new Error(
+            "A surprise basket must cost at most 50% of its estimated value (originalPrice)."
+        );
+    }
+};
+
+const readBasketDetails = (data, isBasket) => {
+    const fields = ["foodInfo", "allergenInfo"];
+    const details = {};
+    for (const field of fields) {
+        if (data[field] === undefined) continue;
+        if (!isBasket || !isNonEmptyText(data[field], 500)) {
+            throw new Error(field + " must be a text of 1 to 500 characters on a surprise basket.");
+        }
+        details[field] = data[field].trim();
+    }
+    return details;
+};
 
 const offersCollection = db.collection("offers");
 const shopsCollection = db.collection("shops");
@@ -37,7 +75,35 @@ const getApprovedShop = async (uid) => {
 };
 
 // Créer une offre
-const createOffer = async (uid, offerData) => {
+const createOffer = async (uid, rawOfferData) => {
+    const offerType = rawOfferData.offerType ?? STANDARD_OFFER;
+
+    if (!OFFER_TYPES.includes(offerType)) {
+        throw new Error(`offerType must be one of: ${OFFER_TYPES.join(", ")}.`);
+    }
+
+    const isBasket = offerType === SURPRISE_BASKET;
+
+    if (!isBasket && rawOfferData.basketItems !== undefined) {
+        throw new Error("basketItems can only be set on a surprise basket.");
+    }
+
+    // A surprise basket gets a default name and category when none is given.
+    const offerData = isBasket
+        ? {
+            ...rawOfferData,
+            name: rawOfferData.name || BASKET_DEFAULT_NAME,
+            category: rawOfferData.category || BASKET_DEFAULT_CATEGORY
+        }
+        : rawOfferData;
+
+    const basketItems = isBasket ? validateBasketItems(offerData.basketItems) : null;
+    const basketDetails = readBasketDetails(offerData, isBasket);
+
+    if (isBasket) {
+        checkBasketPrice(Number(offerData.originalPrice), Number(offerData.discountPrice));
+    }
+
     if (!isNonEmptyText(offerData.name) || !isNonEmptyText(offerData.category)) {
         throw new Error("Name and category must be non-empty texts of at most 100 characters.");
     }
@@ -46,6 +112,10 @@ const createOffer = async (uid, offerData) => {
 
     if (offerData.imageURL && !isHttpUrl(offerData.imageURL)) {
         throw new Error("imageURL must be a valid http(s) URL.");
+    }
+
+    if (!isOptionalText(offerData.description)) {
+        throw new Error("description must be a text of at most 1000 characters.");
     }
 
     const shop = await getApprovedShop(uid);
@@ -59,7 +129,7 @@ const createOffer = async (uid, offerData) => {
         ownerId: uid,
 
         name: offerData.name,
-        description: offerData.description || "",
+        description: (offerData.description || "").trim(),
         category: offerData.category,
         originalPrice: Number(offerData.originalPrice),
         discountPrice: Number(offerData.discountPrice),
@@ -70,6 +140,10 @@ const createOffer = async (uid, offerData) => {
         pickupEnd: offerData.pickupEnd,
         imageURL: offerData.imageURL || "",
 
+        offerType,
+        ...(isBasket ? { basketItems } : {}),
+        ...basketDetails,
+
         status: "available",
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp()
@@ -78,7 +152,7 @@ const createOffer = async (uid, offerData) => {
     await offerRef.set(newOffer);
 
     return {
-        ...newOffer,
+        ...normalizeOffer(offerRef.id, newOffer),
         createdAt: null,
         updatedAt: null
     };
@@ -101,35 +175,23 @@ const normalizeText = (value) =>
 //   product  : product name contains
 //   shop     : shop name contains
 //   category : exact category (case-insensitive)
+//   type     : "standard" or "surprise_basket"
 //   shopId, maxPrice
 const getAllOffers = async (filters = {}) => {
-    const snapshot = await offersCollection
-        .where("status", "in", LISTED_OFFER_STATUSES)
-        .get();
-
-    // Expired (pickup window ended) and sold-out offers are not listed.
+    // The basket type is explicit. Standard offers can lack the type field.
+    const query = filters.type === SURPRISE_BASKET
+        ? offersCollection.where("offerType", "==", SURPRISE_BASKET)
+        : filters.shopId
+            ? offersCollection.where("shopId", "==", filters.shopId)
+            : offersCollection.where("status", "in", LISTED_OFFER_STATUSES);
+    const snapshot = await measureFirestore(() => query.get());
     let offers = snapshot.docs
         .map((doc) => normalizeOffer(doc.id, doc.data()))
         .filter((offer) => isOfferBookable(offer));
 
-    // Only offers of approved shops are public. The shop name is taken
-    // from the shop document (some offers do not store it).
-    const shopIds = [...new Set(offers.map((offer) => offer.shopId).filter(Boolean))];
-    const shopSnapshots = shopIds.length > 0
-        ? await db.getAll(...shopIds.map((id) => shopsCollection.doc(id)))
-        : [];
-    const shops = new Map(
-        shopSnapshots
-            .filter((shop) => shop.exists)
-            .map((shop) => [shop.id, shop.data()])
-    );
-
-    offers = offers
-        .filter((offer) => shops.get(offer.shopId)?.status === "approved")
-        .map((offer) => ({
-            ...offer,
-            shopName: shops.get(offer.shopId).name || offer.shopName || ""
-        }));
+    if (filters.type) {
+        offers = offers.filter((offer) => offer.offerType === filters.type);
+    }
 
     if (filters.category) {
         const category = normalizeText(filters.category);
@@ -139,22 +201,6 @@ const getAllOffers = async (filters = {}) => {
     if (filters.product) {
         const product = normalizeText(filters.product);
         offers = offers.filter((offer) => normalizeText(offer.name).includes(product));
-    }
-
-    if (filters.shop) {
-        const shop = normalizeText(filters.shop);
-        offers = offers.filter((offer) => normalizeText(offer.shopName).includes(shop));
-    }
-
-    if (filters.q) {
-        const words = normalizeText(filters.q).split(/\s+/).filter(Boolean);
-
-        offers = offers.filter((offer) => {
-            const text = normalizeText(
-                [offer.name, offer.description, offer.category, offer.shopName].join(" ")
-            );
-            return words.every((word) => text.includes(word));
-        });
     }
 
     if (filters.shopId) {
@@ -170,6 +216,43 @@ const getAllOffers = async (filters = {}) => {
         });
     }
 
+    if (offers.length === 0) return offers;
+
+    // Resolve only shops still needed after filters that use offer fields.
+    const shopIds = [...new Set(offers.map((offer) => offer.shopId).filter(isDocumentId))];
+    const shopSnapshots = shopIds.length > 0
+        ? await measureFirestore(() => db.getAll(...shopIds.map((id) => shopsCollection.doc(id))))
+        : [];
+    const shops = new Map(shopSnapshots.filter((shop) => shop.exists)
+        .map((shop) => [shop.id, shop.data()]));
+    offers = offers.filter((offer) => shops.get(offer.shopId)?.status === "approved")
+        .map((offer) => ({
+            ...offer,
+            shopName: shops.get(offer.shopId).name || offer.shopName || ""
+        }));
+
+    if (filters.shop) {
+        const shop = normalizeText(filters.shop);
+        offers = offers.filter((offer) => normalizeText(offer.shopName).includes(shop));
+    }
+
+    if (filters.q) {
+        const words = normalizeText(filters.q).split(/\s+/).filter(Boolean);
+
+        offers = offers.filter((offer) => {
+            const text = normalizeText(
+                [
+                    offer.name,
+                    offer.description,
+                    offer.category,
+                    offer.shopName,
+                    ...(offer.basketItems || [])
+                ].join(" ")
+            );
+            return words.every((word) => text.includes(word));
+        });
+    }
+
     return offers;
 };
 
@@ -177,7 +260,7 @@ const getAllOffers = async (filters = {}) => {
 const getOfferById = async (offerId) => {
     const offerDoc = await offersCollection.doc(offerId).get();
 
-    if (!offerDoc.exists) {
+    if (!offerDoc.exists || offerDoc.data().status === DELETED_STATUS) {
         return null;
     }
 
@@ -268,139 +351,173 @@ const setAdminOfferModeration = async (offerId, administratorId, { adminDisabled
 // created the offer.
 const getMyOffers = async (uid) => {
     const [ownerSnapshot, merchantSnapshot] = await Promise.all([
-        offersCollection.where("ownerId", "==", uid).get(),
-        offersCollection.where("merchantId", "==", uid).get()
+        measureFirestore(() => offersCollection.where("ownerId", "==", uid).get()),
+        measureFirestore(() => offersCollection.where("merchantId", "==", uid).get())
     ]);
 
     const offersById = new Map();
 
-    [...ownerSnapshot.docs, ...merchantSnapshot.docs].forEach((doc) => {
-        offersById.set(doc.id, normalizeOffer(doc.id, doc.data()));
-    });
+    [...ownerSnapshot.docs, ...merchantSnapshot.docs]
+        .filter((doc) => doc.data().status !== DELETED_STATUS)
+        .forEach((doc) => {
+            offersById.set(doc.id, normalizeOffer(doc.id, doc.data()));
+        });
 
     return [...offersById.values()];
 };
 
 // Modifier une offre
+// The read, the checks and the write run in one transaction: reservations
+// change availableQuantity in transactions too, so a quantity change can
+// never overwrite stock taken or returned in the meantime.
 const updateOffer = async (uid, offerId, updateData) => {
     const offerRef = offersCollection.doc(offerId);
-    const offerDoc = await offerRef.get();
 
-    if (!offerDoc.exists) {
-        throw new Error("Offer not found.");
-    }
+    await db.runTransaction(async (transaction) => {
+        const offerDoc = await transaction.get(offerRef);
 
-    if (getOfferOwnerId(offerDoc.data()) !== uid) {
-        throw new Error("You are not allowed to modify this offer.");
-    }
-
-    const allowedFields = [
-        "name",
-        "description",
-        "category",
-        "originalPrice",
-        "discountPrice",
-        "quantity",
-        "pickupStart",
-        "pickupEnd",
-        "imageURL"
-    ];
-
-    const cleanData = {};
-
-    for (const field of allowedFields) {
-        if (updateData[field] !== undefined) {
-            cleanData[field] = updateData[field];
+        if (!offerDoc.exists || offerDoc.data().status === DELETED_STATUS) {
+            throw new Error("Offer not found.");
         }
-    }
 
-    if (Object.keys(cleanData).length === 0) {
-        throw new Error("No valid fields provided for update.");
-    }
-
-    const rawCurrent = offerDoc.data();
-    const current = normalizeOffer(offerDoc.id, rawCurrent);
-
-    for (const field of ["name", "category"]) {
-        if (cleanData[field] !== undefined && !isNonEmptyText(cleanData[field])) {
-            throw new Error(`${field} must be a non-empty text of at most 100 characters.`);
+        if (getOfferOwnerId(offerDoc.data()) !== uid) {
+            throw new Error("You are not allowed to modify this offer.");
         }
-    }
 
-    if (
-        cleanData.imageURL !== undefined &&
-        cleanData.imageURL !== "" &&
-        !isHttpUrl(cleanData.imageURL)
-    ) {
-        throw new Error("imageURL must be a valid http(s) URL.");
-    }
+        const allowedFields = [
+            "name",
+            "description",
+            "category",
+            "originalPrice",
+            "discountPrice",
+            "quantity",
+            "pickupStart",
+            "pickupEnd",
+            "imageURL",
+            "basketItems",
+            "foodInfo",
+            "allergenInfo"
+        ];
 
-    if (cleanData.pickupStart !== undefined || cleanData.pickupEnd !== undefined) {
-        validatePickupWindow(
-            cleanData.pickupStart ?? current.pickupStart,
-            cleanData.pickupEnd ?? current.pickupEnd
-        );
-    }
+        // offerType is fixed at creation: it is not in the list above.
+        const cleanData = {};
 
-    for (const field of ["originalPrice", "discountPrice"]) {
-        if (cleanData[field] !== undefined) {
-            cleanData[field] = Number(cleanData[field]);
-
-            if (!Number.isFinite(cleanData[field])) {
-                throw new Error("Prices must be valid numbers.");
+        for (const field of allowedFields) {
+            if (updateData[field] !== undefined) {
+                cleanData[field] = updateData[field];
             }
         }
-    }
 
-    if (cleanData.quantity !== undefined) {
-        const newQuantity = Number(cleanData.quantity);
-
-        if (!Number.isInteger(newQuantity) || newQuantity <= 0) {
-            throw new Error("Quantity must be a positive integer.");
+        if (Object.keys(cleanData).length === 0) {
+            throw new Error("No valid fields provided for update.");
         }
 
-        const alreadyReserved =
-            current.quantity - current.availableQuantity;
+        const rawCurrent = offerDoc.data();
+        const current = normalizeOffer(offerDoc.id, rawCurrent);
+        const isBasket = isSurpriseBasket(rawCurrent);
+        Object.assign(cleanData, readBasketDetails(cleanData, isBasket));
 
-        if (newQuantity < alreadyReserved) {
-            throw new Error(
-                "Quantity cannot be lower than the quantity already reserved."
+        if (cleanData.basketItems !== undefined) {
+            if (!isBasket) {
+                throw new Error("basketItems can only be set on a surprise basket.");
+            }
+
+            cleanData.basketItems = validateBasketItems(cleanData.basketItems);
+        }
+
+        if (cleanData.description !== undefined) {
+            if (!isOptionalText(cleanData.description)) {
+                throw new Error("description must be a text of at most 1000 characters.");
+            }
+
+            cleanData.description = (cleanData.description || "").trim();
+        }
+
+        for (const field of ["name", "category"]) {
+            if (cleanData[field] !== undefined && !isNonEmptyText(cleanData[field])) {
+                throw new Error(`${field} must be a non-empty text of at most 100 characters.`);
+            }
+        }
+
+        if (
+            cleanData.imageURL !== undefined &&
+            cleanData.imageURL !== "" &&
+            !isHttpUrl(cleanData.imageURL)
+        ) {
+            throw new Error("imageURL must be a valid http(s) URL.");
+        }
+
+        if (cleanData.pickupStart !== undefined || cleanData.pickupEnd !== undefined) {
+            validatePickupWindow(
+                cleanData.pickupStart ?? current.pickupStart,
+                cleanData.pickupEnd ?? current.pickupEnd
             );
         }
 
-        cleanData.quantity = newQuantity;
-        cleanData.availableQuantity = newQuantity - alreadyReserved;
-    }
+        for (const field of ["originalPrice", "discountPrice"]) {
+            if (cleanData[field] !== undefined) {
+                cleanData[field] = Number(cleanData[field]);
 
-    const finalOriginalPrice =
-        cleanData.originalPrice ?? current.originalPrice;
-
-    const finalDiscountPrice =
-        cleanData.discountPrice ?? current.discountPrice;
-
-    if (
-        finalOriginalPrice <= 0 ||
-        finalDiscountPrice <= 0 ||
-        finalDiscountPrice >= finalOriginalPrice
-    ) {
-        throw new Error(
-            "Discount price must be positive and lower than original price."
-        );
-    }
-
-    // Offers created by another client use other field names: keep those
-    // in sync too, so every client sees the same values.
-    const legacyFields = { name: "title", discountPrice: "discountedPrice", imageURL: "imageUrl" };
-
-    for (const [field, legacyField] of Object.entries(legacyFields)) {
-        if (cleanData[field] !== undefined && rawCurrent[legacyField] !== undefined) {
-            cleanData[legacyField] = cleanData[field];
+                if (!Number.isFinite(cleanData[field])) {
+                    throw new Error("Prices must be valid numbers.");
+                }
+            }
         }
-    }
 
-    cleanData.updatedAt = FieldValue.serverTimestamp();
+        if (cleanData.quantity !== undefined) {
+            const newQuantity = Number(cleanData.quantity);
 
-    await offerRef.update(cleanData);
+            if (!Number.isInteger(newQuantity) || newQuantity <= 0) {
+                throw new Error("Quantity must be a positive integer.");
+            }
+
+            const alreadyReserved =
+                current.quantity - current.availableQuantity;
+
+            if (newQuantity < alreadyReserved) {
+                throw new Error(
+                    "Quantity cannot be lower than the quantity already reserved."
+                );
+            }
+
+            cleanData.quantity = newQuantity;
+            cleanData.availableQuantity = newQuantity - alreadyReserved;
+        }
+
+        const finalOriginalPrice =
+            cleanData.originalPrice ?? current.originalPrice;
+
+        const finalDiscountPrice =
+            cleanData.discountPrice ?? current.discountPrice;
+
+        if (
+            finalOriginalPrice <= 0 ||
+            finalDiscountPrice <= 0 ||
+            finalDiscountPrice >= finalOriginalPrice
+        ) {
+            throw new Error(
+                "Discount price must be positive and lower than original price."
+            );
+        }
+
+        if (isBasket) {
+            checkBasketPrice(finalOriginalPrice, finalDiscountPrice);
+        }
+
+        // Offers created by another client use other field names: keep those
+        // in sync too, so every client sees the same values.
+        const legacyFields = { name: "title", discountPrice: "discountedPrice", imageURL: "imageUrl" };
+
+        for (const [field, legacyField] of Object.entries(legacyFields)) {
+            if (cleanData[field] !== undefined && rawCurrent[legacyField] !== undefined) {
+                cleanData[legacyField] = cleanData[field];
+            }
+        }
+
+        cleanData.updatedAt = FieldValue.serverTimestamp();
+
+        transaction.update(offerRef, cleanData);
+    });
 
     const updatedDoc = await offerRef.get();
 

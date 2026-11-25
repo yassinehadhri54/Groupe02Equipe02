@@ -1,5 +1,6 @@
 
 const { auth, db } = require("../config/firebase");
+const { measureFirestore, measureFirebaseAuth } = require("../utils/requestTiming");
 
 const verifyToken = async (req, res, next) => {
     try {
@@ -26,12 +27,10 @@ const verifyToken = async (req, res, next) => {
         // 3. Verify Firebase ID Token.
         // checkRevoked = true: tokens issued before a logout
         // (revokeRefreshTokens) or for a disabled account are refused.
-        const decodedToken = await auth.verifyIdToken(token, true);
+        const decodedToken = await measureFirebaseAuth(() => auth.verifyIdToken(token, true));
 
         // 4. Get user profile from Firestore
-        const userDoc = await db.collection("users")
-            .doc(decodedToken.uid)
-            .get();
+        const userDoc = await measureFirestore(() => db.collection("users").doc(decodedToken.uid).get());
 
         if (!userDoc.exists) {
             return res.status(404).json({
@@ -57,13 +56,14 @@ const verifyToken = async (req, res, next) => {
             email: decodedToken.email,
             fullName: userData.fullName,
             role: userData.role,
-            status: userData.status
+            status: userData.status,
+            ecoPoints: userData.ecoPoints ?? 0
         };
 
         next();
 
     } catch (error) {
-        console.error("Authentication error:", error.code || error.message);
+        console.error("Authentication error:", error.code || error.name || "unknown");
 
         const messages = {
             "auth/id-token-expired": "Session expired. Please log in again.",

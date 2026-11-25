@@ -4,6 +4,7 @@ const cors = require("cors");
 require("dotenv").config();
 
 const { db } = require("./config/firebase");
+const { serverTiming, measureFirestore } = require("./utils/requestTiming");
 
 // Import routes
 const authRoutes = require("./routes/authRoutes");
@@ -24,6 +25,7 @@ const app = express();
 // ================================
 
 app.use(cors());
+app.use(serverTiming);
 app.use("/api/admin/offers", adminOfferRoutes);
 app.use(express.json());
 
@@ -57,7 +59,8 @@ app.get("/api/health", (req, res) => {
 
 app.get("/api/firebase-test", async (req, res) => {
     try {
-        await db.listCollections();
+        // Exercise a bounded data read instead of enumerating every collection.
+        await measureFirestore(() => db.collection("shops").limit(1).get());
 
         return res.status(200).json({
             success: true,
@@ -65,7 +68,7 @@ app.get("/api/firebase-test", async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Firebase test error:", error);
+        console.error("Firebase test error:", error.code || error.name || "unknown");
 
         return res.status(500).json({
             success: false,

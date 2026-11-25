@@ -1,13 +1,22 @@
 
 const { db } = require("../config/firebase");
-const shopService = require("./shopService");
+const { measureFirestore } = require("../utils/requestTiming");
 const offerService = require("./offerService");
 const reservationService = require("./reservationService");
-const { isOfferBookable, isOfferExpired, normalizeOffer } = require("../utils/offerFields");
+const {
+    OFFER_TYPES,
+    SURPRISE_BASKET,
+    isOfferBookable,
+    isOfferExpired,
+    normalizeOffer
+} = require("../utils/offerFields");
 
 // All statistics are computed from Firestore data at request time.
 // Revenue and spending only count payments marked "paid", which the
 // backend sets only after a verified (Konnect) or mock confirmation.
+
+const { buildImpact, toMillis } = require("./impact");
+const { ECO_POINTS_PER_ITEM } = reservationService;
 
 const RESERVATION_STATUSES = ["pending", "confirmed", "completed", "cancelled", "rejected"];
 const CLOSED_RESERVATION_STATUSES = ["cancelled", "rejected"];
@@ -24,16 +33,6 @@ const roundMoney = (value) => Number(Number(value || 0).toFixed(3));
 const toNumber = (value) => {
     const number = Number(value);
     return Number.isFinite(number) ? number : 0;
-};
-
-// createdAt can be a Firestore Timestamp or a string depending on the client.
-const toMillis = (value) => {
-    if (!value) return null;
-    if (typeof value.toMillis === "function") return value.toMillis();
-    if (typeof value === "number") return value;
-
-    const parsed = Date.parse(value);
-    return Number.isFinite(parsed) ? parsed : null;
 };
 
 const toISO = (value) => {
@@ -60,6 +59,13 @@ const sortNewestFirst = (items) =>
 // Listed = visible to students: listed status, not expired, not sold out.
 const isListedOffer = (offer) => isOfferBookable(offer);
 
+// Bonus Surprise Basket: baskets picked up, from completed reservations.
+// Reservations made before this bonus have no offerType: they are standard.
+const countBaskets = (completedReservations) =>
+    completedReservations
+        .filter((r) => r.offerType === SURPRISE_BASKET)
+        .reduce((sum, r) => sum + toNumber(r.quantity), 0);
+
 const summarizeReservation = (reservation) => ({
     reservationId: reservation.reservationId,
     offerId: reservation.offerId,
@@ -80,7 +86,7 @@ const getDocsByIds = async (collectionName, ids) => {
     }
 
     const refs = uniqueIds.map((id) => db.collection(collectionName).doc(id));
-    const snapshots = await db.getAll(...refs);
+    const snapshots = await measureFirestore(() => db.getAll(...refs));
 
     return new Map(
         snapshots
@@ -97,9 +103,7 @@ const getPaidPaymentsByReservation = async (reservationIds) => {
     for (let i = 0; i < uniqueIds.length; i += FIRESTORE_IN_LIMIT) {
         const batch = uniqueIds.slice(i, i + FIRESTORE_IN_LIMIT);
 
-        const snapshot = await db.collection("payments")
-            .where("reservationId", "in", batch)
-            .get();
+        const snapshot = await measureFirestore(() => db.collection("payments").where("reservationId", "in", batch).get());
 
         snapshot.docs.forEach((doc) => {
             const payment = doc.data();
@@ -132,25 +136,28 @@ const sumPaidByMode = (payments) => {
 // STUDENT DASHBOARD
 // --------------------------------------------------
 
-const getStudentDashboard = async (studentId) => {
-    const reservations = await reservationService.getMyReservations(studentId);
+const getStudentDashboard = async (studentId, authenticatedEcoPoints) => {
+    const [reservations, ecoPoints] = await Promise.all([
+        reservationService.getMyReservations(studentId),
+        authenticatedEcoPoints ?? measureFirestore(() => db.collection("users").doc(studentId).get())
+            .then((profile) => profile.data()?.ecoPoints)
+    ]);
 
     const completed = reservations.filter((r) => r.status === "completed");
     const paid = reservations.filter((r) => r.paymentStatus === "paid");
 
-    // Savings use the offer's original price; the reservation stores the
-    // price actually paid (unitPrice).
-    const offers = await getDocsByIds(
-        "offers",
-        completed.map((r) => r.offerId)
-    );
+    // Preserve the legacy moneySaved field for older clients. New bookings
+    // have a price snapshot and do not need another read of their offer.
+    const offers = await getDocsByIds("offers", completed
+        .filter((r) => r.originalUnitPrice == null)
+        .map((r) => r.offerId));
 
     let moneySaved = 0;
     let savingsUnavailableFor = 0;
 
     for (const reservation of completed) {
         const offer = offers.get(reservation.offerId);
-        const originalPrice = Number(offer?.originalPrice);
+        const originalPrice = Number(reservation.originalUnitPrice ?? offer?.originalPrice);
         const unitPrice = Number(reservation.unitPrice);
         const quantity = Number(reservation.quantity);
 
@@ -178,11 +185,26 @@ const getStudentDashboard = async (studentId) => {
             paidReservations: paid.length
         },
         impact: {
+            ...buildImpact(completed),
             // Counted on completed (picked up) reservations only.
             itemsRescued: completed.reduce((sum, r) => sum + toNumber(r.quantity), 0),
             moneySaved: roundMoney(moneySaved),
+            surpriseBasketsRescued: countBaskets(completed),
             // Completed reservations whose offer no longer exists.
             savingsUnavailableFor
+        },
+        // Bonus EcoPoints: earned at each validated pickup.
+        ecoPoints: {
+            total: toNumber(ecoPoints),
+            perItem: ECO_POINTS_PER_ITEM,
+            history: completed
+                .filter((reservation) => toNumber(reservation.ecoPointsEarned) > 0)
+                .sort((a, b) => (toMillis(b.completedAt) ?? 0) - (toMillis(a.completedAt) ?? 0))
+                .map((reservation) => ({
+                    reservationId: reservation.reservationId,
+                    date: toISO(reservation.completedAt),
+                    points: reservation.ecoPointsEarned
+                }))
         },
         recentReservations: sortNewestFirst(reservations)
             .slice(0, RECENT_LIMIT)
@@ -195,10 +217,9 @@ const getStudentDashboard = async (studentId) => {
 // --------------------------------------------------
 
 const getMerchantDashboard = async (merchantId) => {
-    const [shop, offers, reservations] = await Promise.all([
-        shopService.getMyShop(merchantId),
+    const [offers, { shop, reservations }] = await Promise.all([
         offerService.getMyOffers(merchantId),
-        reservationService.getMerchantReservations(merchantId)
+        reservationService.getMerchantReservationContext(merchantId)
     ]);
 
     const paidPayments = await getPaidPaymentsByReservation(
@@ -243,12 +264,15 @@ const getMerchantDashboard = async (merchantId) => {
             listed: offers.filter(isListedOffer).length,
             soldOut: offers.filter((o) => toNumber(o.availableQuantity) <= 0).length,
             expired: offers.filter((o) => isOfferExpired(o)).length,
-            byStatus: countBy(offers, (o) => o.status)
+            byStatus: countBy(offers, (o) => o.status),
+            byType: countBy(offers, (o) => o.offerType, OFFER_TYPES)
         },
         reservations: {
             total: reservations.length,
             byStatus: countBy(reservations, (r) => r.status, RESERVATION_STATUSES)
         },
+        impact: buildImpact(completed),
+        surpriseBasketsSold: countBaskets(completed),
         revenue: {
             // Sum of payments with status "paid" for this merchant's reservations.
             paid: sumPaidByMode([...paidPayments.values()]),
@@ -273,7 +297,7 @@ const getAdminDashboard = async () => {
     const [usersSnap, shopsSnap, offersSnap, reservationsSnap, paymentsSnap] =
         await Promise.all(
             ["users", "shops", "offers", "reservations", "payments"].map(
-                (name) => db.collection(name).get()
+                (name) => measureFirestore(() => db.collection(name).get())
             )
         );
 
@@ -284,6 +308,22 @@ const getAdminDashboard = async () => {
     const payments = paymentsSnap.docs.map((doc) => doc.data());
 
     const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+    // Bonus "Impact Dashboard": food rescued and money saved on the platform,
+    // counted on picked-up (completed) reservations.
+    const offersById = new Map(offers.map((offer) => [offer.id, offer]));
+    const completed = reservations.filter((r) => r.status === "completed");
+    let platformMoneySaved = 0;
+
+    for (const reservation of completed) {
+        const originalPrice = Number(offersById.get(reservation.offerId)?.originalPrice);
+        const unitPrice = Number(reservation.unitPrice);
+
+        if (Number.isFinite(originalPrice) && Number.isFinite(unitPrice)) {
+            platformMoneySaved +=
+                Math.max(0, originalPrice - unitPrice) * toNumber(reservation.quantity);
+        }
+    }
 
     return {
         users: {
@@ -296,9 +336,15 @@ const getAdminDashboard = async () => {
             byStatus: countBy(shops, (s) => s.status, ["pending", "approved", "rejected"])
         },
         offers: {
-            total: offers.length,
+            // Deleted offers are kept only for the reservation history.
+            total: offers.filter((o) => o.status !== "deleted").length,
             listed: offers.filter(isListedOffer).length,
-            byStatus: countBy(offers, (o) => o.status)
+            byStatus: countBy(offers, (o) => o.status),
+            byType: countBy(
+                offers.filter((o) => o.status !== "deleted"),
+                (o) => o.offerType,
+                OFFER_TYPES
+            )
         },
         reservations: {
             total: reservations.length,
@@ -315,6 +361,14 @@ const getAdminDashboard = async () => {
             byStatus: countBy(payments, (p) => p.status),
             // "mock" amounts are test payments, not real money.
             paidVolume: sumPaidByMode(payments.filter((p) => p.status === "paid"))
+        },
+        impact: {
+            ...buildImpact(completed),
+            itemsRescued: completed.reduce((sum, r) => sum + toNumber(r.quantity), 0),
+            moneySaved: roundMoney(platformMoneySaved),
+            ecoPointsAwarded: completed.reduce((sum, r) => sum + toNumber(r.ecoPointsEarned), 0),
+            surpriseBasketsRescued: countBaskets(completed),
+            studentsInvolved: new Set(completed.map((r) => r.studentId)).size
         }
     };
 };

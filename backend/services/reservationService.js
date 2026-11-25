@@ -2,9 +2,11 @@
 const { db } = require("../config/firebase");
 const { FieldValue } = require("firebase-admin/firestore");
 const crypto = require("crypto");
+const { measureFirestore } = require("../utils/requestTiming");
 const QRCode = require("qrcode");
 const {
     getOfferDiscountPrice,
+    getOfferType,
     isOfferAdminDisabled,
     isOfferExpired,
     LISTED_OFFER_STATUSES
@@ -14,6 +16,11 @@ const notificationService = require("./notificationService");
 const reservationsCollection = db.collection("reservations");
 const offersCollection = db.collection("offers");
 const shopsCollection = db.collection("shops");
+const usersCollection = db.collection("users");
+
+// Bonus "EcoPoints": points given to the student for each item picked up
+// (awarded once, when the merchant validates the QR code).
+const ECO_POINTS_PER_ITEM = 10;
 
 // Create a reservation
 const createReservation = async (studentId, offerId, quantity) => {
@@ -95,6 +102,11 @@ const createReservation = async (studentId, offerId, quantity) => {
             shopId: offer.shopId,
             shopName: shop.name || offer.shopName || "",
             offerName: offer.name || offer.title || offer.offerName || "",
+            // "standard" or "surprise_basket" (bonus Surprise Basket).
+            offerType: getOfferType(offer),
+            ...(Number(offer.originalPrice) >= unitPrice
+                ? { originalUnitPrice: Number(offer.originalPrice) }
+                : {}),
             quantity: requestedQuantity,
             unitPrice,
             totalPrice,
@@ -121,9 +133,7 @@ const createReservation = async (studentId, offerId, quantity) => {
 
 // Get reservations belonging to a student
 const getMyReservations = async (studentId) => {
-    const snapshot = await reservationsCollection
-        .where("studentId", "==", studentId)
-        .get();
+    const snapshot = await measureFirestore(() => reservationsCollection.where("studentId", "==", studentId).get());
 
     return snapshot.docs.map((doc) => ({
         ...doc.data(),
@@ -133,13 +143,13 @@ const getMyReservations = async (studentId) => {
 
 
 // Get reservations belonging to shops managed by a merchant
-const getMerchantReservations = async (merchantId) => {
+const getMerchantReservationContext = async (merchantId) => {
     // Shops are created with "ownerId" (see shopService.createShop).
     // "merchantId" is also checked for older documents, matching the
     // ownership check used in updateReservationStatus / verifyReservationQR.
     const [ownerSnapshot, legacySnapshot] = await Promise.all([
-        shopsCollection.where("ownerId", "==", merchantId).get(),
-        shopsCollection.where("merchantId", "==", merchantId).get()
+        measureFirestore(() => shopsCollection.where("ownerId", "==", merchantId).get()),
+        measureFirestore(() => shopsCollection.where("merchantId", "==", merchantId).get())
     ]);
 
     const shopIds = [
@@ -149,17 +159,14 @@ const getMerchantReservations = async (merchantId) => {
         ])
     ];
 
-    if (shopIds.length === 0) {
-        return [];
-    }
+    const firstOwnedShop = ownerSnapshot.docs[0];
+    const shop = firstOwnedShop ? { id: firstOwnedShop.id, ...firstOwnedShop.data() } : null;
     const reservations = [];
 
     for (let i = 0; i < shopIds.length; i += 30) {
         const shopIdsBatch = shopIds.slice(i, i + 30);
 
-        const snapshot = await reservationsCollection
-            .where("shopId", "in", shopIdsBatch)
-            .get();
+        const snapshot = await measureFirestore(() => reservationsCollection.where("shopId", "in", shopIdsBatch).get());
 
         snapshot.docs.forEach((doc) => {
             reservations.push({
@@ -169,9 +176,11 @@ const getMerchantReservations = async (merchantId) => {
         });
     }
 
-    return reservations;
+    return { shop, reservations };
 };
 
+const getMerchantReservations = async (merchantId) =>
+    (await getMerchantReservationContext(merchantId)).reservations;
 
 // Merchant confirms or rejects a reservation.
 // Completion is only allowed through QR verification.
@@ -250,22 +259,21 @@ const updateReservationStatus = async (
             const offerRef = offersCollection.doc(reservation.offerId);
             const offerSnapshot = await transaction.get(offerRef);
 
-            if (!offerSnapshot.exists) {
-                throw new Error("Offer not found.");
+            // An offer removed from the database (older hard delete) has no
+            // stock to return: the reservation is still rejected.
+            if (offerSnapshot.exists) {
+                const currentQuantity = Number(offerSnapshot.data().availableQuantity);
+
+                if (!Number.isFinite(currentQuantity)) {
+                    throw new Error("Invalid offer quantity.");
+                }
+
+                transaction.update(offerRef, {
+                    availableQuantity:
+                        currentQuantity + Number(reservation.quantity),
+                    updatedAt: FieldValue.serverTimestamp()
+                });
             }
-
-            const offer = offerSnapshot.data();
-            const currentQuantity = Number(offer.availableQuantity);
-
-            if (!Number.isFinite(currentQuantity)) {
-                throw new Error("Invalid offer quantity.");
-            }
-
-            transaction.update(offerRef, {
-                availableQuantity:
-                    currentQuantity + Number(reservation.quantity),
-                updatedAt: FieldValue.serverTimestamp()
-            });
         }
 
         transaction.update(reservationRef, {
@@ -431,18 +439,38 @@ const verifyReservationQR = async (merchantId, token) => {
             );
         }
 
+        const quantity = Number(reservation.quantity);
+        const studentRef = usersCollection.doc(reservation.studentId);
+        const student = await transaction.get(studentRef);
+        const ecoPointsEarned =
+            student.exists && student.data().role === "student" &&
+            Number.isSafeInteger(quantity * ECO_POINTS_PER_ITEM) && Number.isInteger(quantity) && quantity > 0
+                ? quantity * ECO_POINTS_PER_ITEM
+                : 0;
+
         // One-time QR validation and reservation completion.
         transaction.update(reservationRef, {
             status: "completed",
+            ecoPointsEarned,
             "qr.usedAt": FieldValue.serverTimestamp(),
             completedAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp()
         });
 
+        // EcoPoints are added in the same transaction: a QR code can only be
+        // used once, so points cannot be earned twice for one pickup.
+        if (ecoPointsEarned > 0) {
+            transaction.update(studentRef, {
+                ecoPoints: FieldValue.increment(ecoPointsEarned),
+                updatedAt: FieldValue.serverTimestamp()
+            });
+        }
+
         return {
             reservationId: reservationRef.id,
             status: "completed",
             paymentStatus: "paid",
+            ecoPointsEarned,
             message: "QR Code verified. Reservation completed successfully."
         };
     });
@@ -487,22 +515,21 @@ const cancelReservation = async (studentId, reservationId) => {
         const offerRef = offersCollection.doc(reservation.offerId);
         const offerSnapshot = await transaction.get(offerRef);
 
-        if (!offerSnapshot.exists) {
-            throw new Error("Offer not found.");
+        // An offer removed from the database (older hard delete) has no
+        // stock to return: the reservation is still cancelled.
+        if (offerSnapshot.exists) {
+            const currentQuantity = Number(offerSnapshot.data().availableQuantity);
+
+            if (!Number.isFinite(currentQuantity)) {
+                throw new Error("Invalid offer quantity.");
+            }
+
+            transaction.update(offerRef, {
+                availableQuantity:
+                    currentQuantity + Number(reservation.quantity),
+                updatedAt: FieldValue.serverTimestamp()
+            });
         }
-
-        const offer = offerSnapshot.data();
-        const currentQuantity = Number(offer.availableQuantity);
-
-        if (!Number.isFinite(currentQuantity)) {
-            throw new Error("Invalid offer quantity.");
-        }
-
-        transaction.update(offerRef, {
-            availableQuantity:
-                currentQuantity + Number(reservation.quantity),
-            updatedAt: FieldValue.serverTimestamp()
-        });
 
         transaction.update(reservationRef, {
             status: "cancelled",
@@ -584,7 +611,8 @@ const withPickupNotification = async (...args) => {
         await notificationService.notifyUser(reservation.studentId, {
             type: "reservation_completed",
             title: "Commande récupérée",
-            body: `Merci ! ${describe(reservation)} chez ${reservation.shopName} a bien été récupérée.`,
+            body: `Merci ! ${describe(reservation)} chez ${reservation.shopName} a bien été récupérée.` +
+                (result.ecoPointsEarned ? ` +${result.ecoPointsEarned} EcoPoints.` : ""),
             data: { reservationId: result.reservationId }
         });
     })().catch((error) => console.error("Pickup notification error:", error.message));
@@ -593,9 +621,11 @@ const withPickupNotification = async (...args) => {
 };
 
 module.exports = {
+    ECO_POINTS_PER_ITEM,
     createReservation: withCreatedNotification,
     getMyReservations,
     getMerchantReservations,
+    getMerchantReservationContext,
     updateReservationStatus: withStatusNotification,
     generateReservationQR,
     verifyReservationQR: withPickupNotification,
